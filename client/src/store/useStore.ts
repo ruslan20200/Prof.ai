@@ -35,6 +35,8 @@ export interface InterviewAnalytics {
   responseQuality: number;
   strengths: string[];
   weaknesses: string[];
+  opportunities: string[];
+  threats: string[];
   overallFeedback: string;
   detailedAnalysis: string;
 }

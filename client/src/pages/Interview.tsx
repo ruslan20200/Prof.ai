@@ -6,11 +6,12 @@ import { conductInterview, analyzeInterview } from '../lib/ai';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   MessageSquare, Send, BarChart3, ArrowLeft, Sparkles,
-  TrendingUp, AlertTriangle, CheckCircle, XCircle, RefreshCw
+  TrendingUp, AlertTriangle, CheckCircle, XCircle, RefreshCw, Mic, MicOff, Volume2, VolumeX
 } from 'lucide-react';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation, useSearch } from 'wouter';
 import { useI18n } from '@/contexts/I18nContext';
+import { useSpeechRecognition, useSpeechSynthesis } from '@/hooks/useSpeech';
 
 const INTERVIEW_IMG = 'https://private-us-east-1.manuscdn.com/sessionFile/jEzBJwYrZx1oONmR73Dibg/sandbox/w9MJXfqlFpTQrySgI2073N-img-3_1772022775000_na1fn_aW50ZXJ2aWV3LWlsbHVzdHJhdGlvbg.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvakV6Qkp3WXJaeDFvT05tUjczRGliZy9zYW5kYm94L3c5TUpYZnFsRnBUUXJ5U2dJMjA3M04taW1nLTNfMTc3MjAyMjc3NTAwMF9uYTFmbl9hVzUwWlhKMmFXVjNMV2xzYkhWemRISmhkR2x2YmcucG5nP3gtb3NzLXByb2Nlc3M9aW1hZ2UvcmVzaXplLHdfMTkyMCxoXzE5MjAvZm9ybWF0LHdlYnAvcXVhbGl0eSxxXzgwIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzk4NzYxNjAwfX19XX0_&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=gcTbxLHRtPJji4QQqdmUKhHjPc4jzBYEfz2mmSg77VoazxFIUbyOExBQ9BR9~zVwVBb8wApmDzCs87pVOG-3tFpS3vxLw1PdxXjRRcqAtsCYRk7FVXRPjaw5KFJLApexX-Q~ztC241HHi6rS87Ah8FzTgiR-sD-PKI2xGBLDIWG5On1kLOFl5npLRmkRiv0wQYrSQBTq24G5sJJ9Ur3ncoIcKcL-tM9LuDaCnCC-kDZlZyBca~aWeQLB-O~orboMdigrGC83VI-WWVNwpP6dLvqKAMibWZ-VeIummub4t5XsrknVd84R7g-ceMzGbFy8~TRzuEmpwRH6c2Tirs~dog__';
 
@@ -23,13 +24,13 @@ export default function Interview() {
 
   const {
     interviewMessages, addInterviewMessage, interviewActive, setInterviewActive,
-    interviewAnalytics, setInterviewAnalytics, clearInterview, setInterviewJobId
+    interviewAnalytics, setInterviewAnalytics, clearInterview, setInterviewJobId, interviewJobId
   } = useStore();
 
   const [input, setInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [selectedJobId, setSelectedJobId] = useState(jobIdParam || '');
+  const [selectedJobId, setSelectedJobId] = useState(jobIdParam || interviewJobId || '');
   const [showAnalytics, setShowAnalytics] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -38,6 +39,91 @@ export default function Interview() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [interviewMessages]);
+
+  useEffect(() => {
+    if (!selectedJobId && interviewJobId) {
+      setSelectedJobId(interviewJobId);
+    }
+  }, [interviewJobId, selectedJobId]);
+
+  const buildFallbackAnalytics = () => ({
+    confidenceScore: 72,
+    anxietyLevel: 'средний',
+    responseQuality: 68,
+    strengths: ['Хорошая структура ответов', 'Релевантный опыт'],
+    weaknesses: ['Можно добавить больше конкретных примеров'],
+    opportunities: ['Добавить количеимые результаты и KPI в ответы', 'Подготовить 2-3 кейса под требования вакансии'],
+    threats: ['Слишком общие формулировки без примеров', 'Потеря структуры ответа при сложных вопросах'],
+    overallFeedback: 'Хорошее собеседование! Рекомендуем подготовить больше конкретных примеров из опыта.',
+    detailedAnalysis: lang === 'kk'
+      ? 'Толық AI-талдау үшін GitHub Models токенін қосыңыз (VITE_AI_API_KEY).'
+      : 'Для полного AI-анализа добавьте токен GitHub Models (VITE_AI_API_KEY).',
+  });
+
+  const normalizeAnalytics = (raw: unknown) => {
+    const fallback = buildFallbackAnalytics();
+    const value = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
+    const toList = (field: string, fallbackList: string[]) =>
+      Array.isArray(value[field])
+        ? value[field].map((item) => String(item).trim()).filter(Boolean)
+        : fallbackList;
+
+    return {
+      confidenceScore: Number.isFinite(Number(value.confidenceScore)) ? Number(value.confidenceScore) : fallback.confidenceScore,
+      anxietyLevel: String(value.anxietyLevel || fallback.anxietyLevel),
+      responseQuality: Number.isFinite(Number(value.responseQuality)) ? Number(value.responseQuality) : fallback.responseQuality,
+      strengths: toList('strengths', fallback.strengths),
+      weaknesses: toList('weaknesses', fallback.weaknesses),
+      opportunities: toList('opportunities', fallback.opportunities),
+      threats: toList('threats', fallback.threats),
+      overallFeedback: String(value.overallFeedback || fallback.overallFeedback),
+      detailedAnalysis: String(value.detailedAnalysis || fallback.detailedAnalysis),
+    };
+  };
+
+  const {
+    text: recognizedText,
+    interimText,
+    isListening,
+    isSupported: speechInputSupported,
+    startListening,
+    stopListening,
+    resetText,
+  } = useSpeechRecognition({
+    language: 'ru-RU',
+    continuous: true,
+    interimResults: true,
+  });
+
+  const draftMessage = (input || recognizedText || interimText).trim();
+  const canSend = Boolean(draftMessage) && !aiLoading && Boolean(selectedJob);
+
+  const {
+    isSpeaking,
+    isSupported: speechOutputSupported,
+    speak,
+    stop: stopSpeech,
+  } = useSpeechSynthesis();
+
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [autoVoice, setAutoVoice] = useState(true);
+
+  useEffect(() => {
+    if (!recognizedText) return;
+    setInput(recognizedText);
+  }, [recognizedText]);
+
+  useEffect(() => {
+    return () => {
+      stopSpeech();
+    };
+  }, [stopSpeech]);
+
+  useEffect(() => {
+    if (!isSpeaking && speakingMessageId) {
+      setSpeakingMessageId(null);
+    }
+  }, [isSpeaking, speakingMessageId]);
 
   const startInterview = useCallback(async () => {
     if (!selectedJob) return;
@@ -60,30 +146,43 @@ export default function Interview() {
         content: response,
         timestamp: Date.now(),
       });
+      if (autoVoice && speechOutputSupported) {
+        await speak(response, 'ru-RU');
+      }
     } catch {
+      const fallbackMessage = lang === 'kk'
+        ? 'Сәлеметсіз бе! Сұхбатты бастайық. Өзіңіз және тәжірибеңіз туралы айтып беріңіз.'
+        : 'Здравствуйте! Давайте начнём собеседование. Расскажите о себе и вашем опыте.';
+
       addInterviewMessage({
         id: Date.now().toString(),
         role: 'assistant',
-        content: lang === 'kk'
-          ? 'Сәлеметсіз бе! Сұхбатты бастайық. Өзіңіз және тәжірибеңіз туралы айтып беріңіз.'
-          : 'Здравствуйте! Давайте начнём собеседование. Расскажите о себе и вашем опыте.',
+        content: fallbackMessage,
         timestamp: Date.now(),
       });
+      if (autoVoice && speechOutputSupported) {
+        await speak(fallbackMessage, 'ru-RU');
+      }
     }
     setAiLoading(false);
-  }, [selectedJob, clearInterview, setInterviewJobId, setInterviewActive, addInterviewMessage]);
+  }, [selectedJob, clearInterview, setInterviewJobId, setInterviewActive, addInterviewMessage, autoVoice, speechOutputSupported, speak, lang]);
 
   const sendMessage = async () => {
-    if (!input.trim() || aiLoading || !selectedJob) return;
+    if (!draftMessage || aiLoading || !selectedJob) return;
+
+    if (isListening) {
+      stopListening();
+    }
 
     const userMsg = {
       id: Date.now().toString(),
       role: 'user' as const,
-      content: input.trim(),
+      content: draftMessage,
       timestamp: Date.now(),
     };
     addInterviewMessage(userMsg);
     setInput('');
+    resetText();
     setAiLoading(true);
 
     try {
@@ -100,45 +199,92 @@ export default function Interview() {
         content: response,
         timestamp: Date.now(),
       });
+      if (autoVoice && speechOutputSupported) {
+        await speak(response, 'ru-RU');
+      }
     } catch {
+      const fallbackMessage = lang === 'kk'
+        ? 'Жақсы жауап! Жалғастырайық. Ең маңызды жобаңыз туралы айтып беріңіз.'
+        : 'Хороший ответ! Давайте продолжим. Расскажите о вашем самом значимом проекте.';
+
       addInterviewMessage({
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: lang === 'kk'
-          ? 'Жақсы жауап! Жалғастырайық. Ең маңызды жобаңыз туралы айтып беріңіз.'
-          : 'Хороший ответ! Давайте продолжим. Расскажите о вашем самом значимом проекте.',
+        content: fallbackMessage,
         timestamp: Date.now(),
       });
+      if (autoVoice && speechOutputSupported) {
+        await speak(fallbackMessage, 'ru-RU');
+      }
     }
     setAiLoading(false);
   };
 
+  const toggleListening = () => {
+    if (!speechInputSupported || aiLoading) return;
+
+    if (isListening) {
+      if (interimText.trim()) {
+        setInput((prev) => `${prev} ${interimText}`.trim());
+      }
+      stopListening();
+      return;
+    }
+
+    resetText();
+    startListening();
+  };
+
+  const playAssistantMessage = async (messageId: string, content: string) => {
+    if (!speechOutputSupported) return;
+
+    if (isSpeaking && speakingMessageId === messageId) {
+      stopSpeech();
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    setSpeakingMessageId(messageId);
+    const started = await speak(content, 'ru-RU');
+    if (!started) {
+      setSpeakingMessageId(null);
+    }
+  };
+
   const finishInterview = async () => {
-    if (!selectedJob) return;
     setInterviewActive(false);
     setAnalyzing(true);
+
+    if (!selectedJob) {
+      setInterviewAnalytics(buildFallbackAnalytics());
+      setAnalyzing(false);
+      setShowAnalytics(true);
+      return;
+    }
 
     try {
       const result = await analyzeInterview(interviewMessages, selectedJob.title);
       const cleaned = result.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
       const analytics = JSON.parse(cleaned);
-      setInterviewAnalytics(analytics);
+      setInterviewAnalytics(normalizeAnalytics(analytics));
     } catch {
-      setInterviewAnalytics({
-        confidenceScore: 72,
-        anxietyLevel: 'средний',
-        responseQuality: 68,
-        strengths: ['Хорошая структура ответов', 'Релевантный опыт'],
-        weaknesses: ['Можно добавить больше конкретных примеров'],
-        overallFeedback: 'Хорошее собеседование! Рекомендуем подготовить больше конкретных примеров из опыта.',
-        detailedAnalysis: lang === 'kk'
-          ? 'Толық AI-талдау үшін GitHub Models токенін қосыңыз (VITE_GITHUB_TOKEN).'
-          : 'Для полного AI-анализа добавьте токен GitHub Models (VITE_GITHUB_TOKEN).',
-      });
+      setInterviewAnalytics(buildFallbackAnalytics());
     }
     setAnalyzing(false);
     setShowAnalytics(true);
   };
+  if (analyzing && !showAnalytics) {
+    return (
+      <div className="min-h-screen pt-16">
+        <div className="container py-10 max-w-3xl">
+          <div className="rounded-2xl border border-border bg-white p-6">
+            <AIThinking text={t('interview.analyzingInterview')} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!interviewActive && !showAnalytics) {
     return (
       <div className="min-h-screen pt-16">
@@ -291,6 +437,34 @@ export default function Interview() {
                   ))}
                 </ul>
               </div>
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-6">
+                <h3 className="font-display font-bold mb-3 flex items-center gap-2 text-blue-700">
+                  <TrendingUp className="w-4 h-4" />
+                  {t('interview.opportunities')}
+                </h3>
+                <ul className="space-y-2">
+                  {(interviewAnalytics.opportunities || []).map((item, i) => (
+                    <li key={i} className="text-sm text-blue-700 flex items-start gap-2">
+                      <CheckCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/50 p-6">
+                <h3 className="font-display font-bold mb-3 flex items-center gap-2 text-rose-700">
+                  <XCircle className="w-4 h-4" />
+                  {t('interview.threats')}
+                </h3>
+                <ul className="space-y-2">
+                  {(interviewAnalytics.threats || []).map((item, i) => (
+                    <li key={i} className="text-sm text-rose-700 flex items-start gap-2">
+                      <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
 
             {interviewAnalytics.detailedAnalysis && (
@@ -334,15 +508,34 @@ export default function Interview() {
               <div className="text-xs text-muted-foreground">{selectedJob?.company}</div>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={finishInterview}
-            className="gap-1 bg-transparent"
-          >
-            <BarChart3 className="w-3.5 h-3.5" />
-            {t('interview.finish')}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const next = !autoVoice;
+                setAutoVoice(next);
+                if (!next) {
+                  stopSpeech();
+                  setSpeakingMessageId(null);
+                }
+              }}
+              className="gap-1 bg-transparent"
+              title={autoVoice ? t('interview.autoVoiceOn') : t('interview.autoVoiceOff')}
+            >
+              {autoVoice ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+              {autoVoice ? t('interview.autoVoiceOn') : t('interview.autoVoiceOff')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={finishInterview}
+              className="gap-1 bg-transparent"
+            >
+              <BarChart3 className="w-3.5 h-3.5" />
+              {t('interview.finish')}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -364,10 +557,31 @@ export default function Interview() {
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{msg.content}</div>
+                  {msg.role === 'assistant' && speechOutputSupported && (
+                    <button
+                      type="button"
+                      onClick={() => playAssistantMessage(msg.id, msg.content)}
+                      className="mt-2 inline-flex items-center gap-1 rounded-md border border-border/60 bg-white/70 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {isSpeaking && speakingMessageId === msg.id ? (
+                        <VolumeX className="w-3 h-3" />
+                      ) : (
+                        <Volume2 className="w-3 h-3" />
+                      )}
+                      {isSpeaking && speakingMessageId === msg.id ? t('interview.stopAudio') : t('interview.listenAnswer')}
+                    </button>
+                  )}
                 </div>
               </motion.div>
             ))}
           </AnimatePresence>
+
+          {(isListening || interimText) && (
+            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+              <div className="font-medium mb-1">{isListening ? t('interview.listening') : t('interview.recognized')}</div>
+              <div className="whitespace-pre-wrap">{interimText || recognizedText || t('interview.listening')}</div>
+            </div>
+          )}
 
           {aiLoading && <AIThinking text={t('interview.interviewerThinking')} />}
           {analyzing && <AIThinking text={t('interview.analyzingInterview')} />}
@@ -378,11 +592,21 @@ export default function Interview() {
       <div className="border-t border-border bg-white/80 backdrop-blur-md sticky bottom-0">
         <div className="container py-4 max-w-3xl">
           <div className="flex gap-3">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={toggleListening}
+              disabled={!speechInputSupported || aiLoading}
+              className={`h-12 w-12 rounded-xl p-0 ${isListening ? 'border-red-300 text-red-600' : ''}`}
+              title={isListening ? t('interview.stopListening') : t('interview.startListening')}
+            >
+              {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+            </Button>
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+              onKeyDown={(e) => e.key === 'Enter' && canSend && sendMessage()}
               placeholder={t('interview.answerPlaceholder')}
               className="flex-1 h-12 px-5 rounded-xl border border-border bg-white text-sm focus:border-primary outline-none transition-all"
               disabled={aiLoading}
@@ -390,7 +614,7 @@ export default function Interview() {
             />
             <Button
               onClick={sendMessage}
-              disabled={!input.trim() || aiLoading}
+              disabled={!canSend}
               className="h-12 w-12 rounded-xl p-0"
             >
               <Send className="w-4 h-4" />

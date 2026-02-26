@@ -42,7 +42,7 @@ type RawAnswer = Record<string, unknown>;
 
 function normalizeBaseUrl(rawBaseUrl: string): string {
   const trimmed = rawBaseUrl.trim().replace(/\/+$/, '');
-  if (!trimmed) return 'http://127.0.0.1:1234/v1';
+  if (!trimmed) return 'https://models.inference.ai.azure.com';
 
   const isLocalLike =
     trimmed.startsWith('http://127.0.0.1') ||
@@ -58,16 +58,36 @@ function normalizeBaseUrl(rawBaseUrl: string): string {
 
 function getRuntimeConfig() {
   const env = (import.meta as unknown as { env: Record<string, string | undefined> }).env;
-  const baseUrl = normalizeBaseUrl(env.VITE_AI_BASE_URL || 'http://127.0.0.1:1234/v1');
-  const model = (env.VITE_AI_MODEL || 'local-model').trim();
+  const baseUrl = normalizeBaseUrl(env.VITE_AI_BASE_URL || 'https://models.inference.ai.azure.com');
+  const model = (env.VITE_AI_MODEL || 'gpt-4o').trim();
   const isLocalLike = baseUrl.startsWith('http://127.0.0.1') || baseUrl.startsWith('http://localhost') || baseUrl.includes('.ngrok');
-  const apiKey = (env.VITE_AI_API_KEY || '').trim() || (isLocalLike ? 'lm-studio' : '');
-  return { baseUrl, model, apiKey };
+  const apiUrl = (env.VITE_AI_API_URL || '').trim();
+  const endpointUrl = apiUrl
+    ? apiUrl
+    : baseUrl.endsWith('/chat/completions')
+      ? baseUrl
+      : `${baseUrl}/chat/completions`;
+  const apiKey = (env.VITE_AI_API_KEY || env.VITE_GITHUB_TOKEN || '').trim() || (isLocalLike ? 'lm-studio' : '');
+  return { endpointUrl, model, apiKey };
+}
+
+function sanitizeInterviewText(raw: string): string {
+  return raw
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/^\s*[-*•]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export async function callGemini(prompt: string, systemPrompt?: string): Promise<string> {
   try {
-    const { baseUrl, model, apiKey } = getRuntimeConfig();
+    const { endpointUrl, model, apiKey } = getRuntimeConfig();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
     if (systemPrompt) {
@@ -75,8 +95,9 @@ export async function callGemini(prompt: string, systemPrompt?: string): Promise
     }
     messages.push({ role: 'user', content: prompt });
 
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetch(endpointUrl, {
       method: 'POST',
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
@@ -87,6 +108,8 @@ export async function callGemini(prompt: string, systemPrompt?: string): Promise
         temperature: 0.7,
         max_tokens: 1024,
       }),
+    }).finally(() => {
+      clearTimeout(timeoutId);
     });
 
     if (!response.ok) {
@@ -589,18 +612,18 @@ export async function conductInterview(
   conversationHistory: Array<{ role: string; content: string }>,
   isFirstMessage: boolean
 ): Promise<string> {
-  const systemPrompt = `Ты — строгий, но справедливый HR-интервьюер на платформе Prof.ai. Ты проводишь собеседование на позицию "${jobTitle}".
+  const systemPrompt = `Ты — дружелюбный, профессиональный HR-интервьюер платформы BilimMatch/Prof.ai. Ты проводишь собеседование на позицию "${jobTitle}".
 Требования к позиции: ${jobRequirements.join(', ')}.
 
 Правила:
 1. Задавай по одному вопросу за раз
 2. Вопросы должны быть релевантны позиции
-3. Начни с приветствия и простого вопроса
+3. Начни с одной короткой фразы приветствия и простого вопроса
 4. Постепенно усложняй вопросы
 5. Задай 5-7 вопросов, затем заверши собеседование
 6. Будь профессиональным, но дружелюбным
 7. Отвечай на русском языке
-8. Используй Markdown для форматирования`;
+8. Не используй markdown, списки и спецсимволы форматирования`;
 
   let prompt: string;
   if (isFirstMessage) {
@@ -610,7 +633,8 @@ export async function conductInterview(
     prompt = `История разговора:\n${history}\n\nПродолжи собеседование. Если было задано уже 5+ вопросов, заверши собеседование и скажи, что анализ будет готов.`;
   }
 
-  return callGemini(prompt, systemPrompt);
+  const raw = await callGemini(prompt, systemPrompt);
+  return sanitizeInterviewText(raw);
 }
 
 export async function analyzeInterview(
@@ -626,6 +650,8 @@ export async function analyzeInterview(
   "responseQuality": число от 0 до 100,
   "strengths": ["сильная сторона 1", "сильная сторона 2"],
   "weaknesses": ["слабая сторона 1"],
+  "opportunities": ["точка роста 1", "шаг для усиления 2"],
+  "threats": ["риск на интервью 1", "фактор, который может снизить оценку"],
   "overallFeedback": "Общий фидбек в 2-3 предложениях",
   "detailedAnalysis": "Подробный анализ в формате Markdown с рекомендациями"
 }
@@ -682,5 +708,5 @@ function getFallbackResponse(prompt: string): string {
 *Для полноценной генерации резюме проверьте подключение backend AI endpoint.*`;
   }
 
-  return 'AI временно недоступен. Проверьте VITE_AI_BASE_URL, VITE_AI_MODEL и запуск LM Studio.';
+  return 'AI временно недоступен. Проверьте VITE_AI_API_URL или VITE_AI_BASE_URL, VITE_AI_MODEL и API ключ.';
 }
