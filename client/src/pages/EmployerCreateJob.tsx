@@ -1,4 +1,3 @@
-/* Career Canvas: Employer panel — create job posting */
 import { Button } from '@/components/ui/button';
 import { useStore } from '@/store/useStore';
 import { motion } from 'framer-motion';
@@ -6,9 +5,11 @@ import { Building2, Plus, X, ArrowLeft, Sparkles, Check } from 'lucide-react';
 import { useState } from 'react';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
+import { useI18n } from '@/contexts/I18nContext';
 
 export default function EmployerCreateJob() {
   const [, navigate] = useLocation();
+  const { t } = useI18n();
   const { addEmployerJob, employerJobs } = useStore();
 
   const [form, setForm] = useState({
@@ -63,7 +64,7 @@ export default function EmployerCreateJob() {
 
   const handleSubmit = () => {
     if (!form.title || !form.description) {
-      toast.error('Заполните название и описание вакансии');
+      toast.error(t('employerCreate.fillTitleDesc'));
       return;
     }
 
@@ -78,7 +79,7 @@ export default function EmployerCreateJob() {
       skills: form.skills.filter(Boolean),
     });
 
-    toast.success('Вакансия создана!');
+    toast.success(t('employerCreate.created'));
     setForm({
       title: '',
       description: '',
@@ -101,57 +102,56 @@ export default function EmployerCreateJob() {
             onClick={() => navigate('/')}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            На главную
+            {t('common.home')}
           </Button>
 
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/5 border border-primary/10 mb-4">
             <Building2 className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-medium text-primary">Панель работодателя</span>
+            <span className="text-xs font-medium text-primary">{t('employerCreate.badge')}</span>
           </div>
 
           <h1 className="font-display text-3xl font-bold tracking-tight mb-2">
-            Создать вакансию
+            {t('employerCreate.title')}
           </h1>
           <p className="text-muted-foreground mb-8">
-            Заполните информацию о вакансии, и AI поможет найти подходящих кандидатов
+            {t('employerCreate.subtitle')}
           </p>
 
-          {/* Form */}
           <div className="space-y-6">
             <div>
-              <label className="text-sm font-medium mb-2 block">Название вакансии *</label>
+              <label className="text-sm font-medium mb-2 block">{t('employerCreate.titleLabel')}</label>
               <input
                 type="text"
                 value={form.title}
                 onChange={(e) => updateField('title', e.target.value)}
-                placeholder="Например: Frontend-разработчик"
+                placeholder={t('employerCreate.titlePlaceholder')}
                 className="w-full h-12 px-4 rounded-xl border border-border bg-white text-sm focus:border-primary outline-none transition-all"
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Описание *</label>
+              <label className="text-sm font-medium mb-2 block">{t('employerCreate.descriptionLabel')}</label>
               <textarea
                 value={form.description}
                 onChange={(e) => updateField('description', e.target.value)}
-                placeholder="Опишите обязанности и условия работы..."
+                placeholder={t('employerCreate.descriptionPlaceholder')}
                 className="w-full px-4 py-3 rounded-xl border border-border bg-white text-sm focus:border-primary outline-none transition-all resize-none h-32"
               />
             </div>
 
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Зарплата</label>
+                <label className="text-sm font-medium mb-2 block">{t('employerCreate.salary')}</label>
                 <input
                   type="text"
                   value={form.salary}
                   onChange={(e) => updateField('salary', e.target.value)}
-                  placeholder="от 500 000 ₸"
+                  placeholder={t('employerCreate.salaryPlaceholder')}
                   className="w-full h-12 px-4 rounded-xl border border-border bg-white text-sm focus:border-primary outline-none transition-all"
                 />
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">Город</label>
+                <label className="text-sm font-medium mb-2 block">{t('employerCreate.city')}</label>
                 <input
                   type="text"
                   value={form.location}
@@ -162,22 +162,21 @@ export default function EmployerCreateJob() {
             </div>
 
             <div>
-              <label className="text-sm font-medium mb-2 block">Тип занятости</label>
+              <label className="text-sm font-medium mb-2 block">{t('employerCreate.employmentType')}</label>
               <select
                 value={form.type}
                 onChange={(e) => updateField('type', e.target.value)}
                 className="w-full h-12 px-4 rounded-xl border border-border bg-white text-sm focus:border-primary outline-none"
               >
-                <option>Полная занятость</option>
-                <option>Частичная занятость</option>
-                <option>Стажировка</option>
-                <option>Проектная работа</option>
+                <option>{t('employerCreate.full')}</option>
+                <option>{t('employerCreate.part')}</option>
+                <option>{t('employerCreate.internship')}</option>
+                <option>{t('employerCreate.project')}</option>
               </select>
             </div>
 
-            {/* Requirements */}
             <div>
-              <label className="text-sm font-medium mb-2 block">Требования</label>
+              <label className="text-sm font-medium mb-2 block">{t('employerCreate.requirements')}</label>
               <div className="space-y-2">
                 {form.requirements.map((req, i) => (
                   <div key={i} className="flex gap-2">
@@ -185,7 +184,7 @@ export default function EmployerCreateJob() {
                       type="text"
                       value={req}
                       onChange={(e) => updateRequirement(i, e.target.value)}
-                      placeholder="Например: Опыт работы от 1 года"
+                      placeholder={t('employerCreate.reqPlaceholder')}
                       className="flex-1 h-10 px-4 rounded-lg border border-border bg-white text-sm focus:border-primary outline-none transition-all"
                     />
                     {form.requirements.length > 1 && (
@@ -203,14 +202,13 @@ export default function EmployerCreateJob() {
                   className="flex items-center gap-1 text-sm text-primary font-medium hover:underline"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Добавить требование
+                  {t('employerCreate.addRequirement')}
                 </button>
               </div>
             </div>
 
-            {/* Skills */}
             <div>
-              <label className="text-sm font-medium mb-2 block">Навыки</label>
+              <label className="text-sm font-medium mb-2 block">{t('employerCreate.skills')}</label>
               <div className="space-y-2">
                 {form.skills.map((skill, i) => (
                   <div key={i} className="flex gap-2">
@@ -218,7 +216,7 @@ export default function EmployerCreateJob() {
                       type="text"
                       value={skill}
                       onChange={(e) => updateSkill(i, e.target.value)}
-                      placeholder="Например: React"
+                      placeholder={t('employerCreate.skillPlaceholder')}
                       className="flex-1 h-10 px-4 rounded-lg border border-border bg-white text-sm focus:border-primary outline-none transition-all"
                     />
                     {form.skills.length > 1 && (
@@ -236,7 +234,7 @@ export default function EmployerCreateJob() {
                   className="flex items-center gap-1 text-sm text-primary font-medium hover:underline"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Добавить навык
+                  {t('employerCreate.addSkill')}
                 </button>
               </div>
             </div>
@@ -247,14 +245,13 @@ export default function EmployerCreateJob() {
               className="w-full h-12 rounded-xl font-semibold gap-2"
             >
               <Sparkles className="w-4 h-4" />
-              Опубликовать вакансию
+              {t('employerCreate.publish')}
             </Button>
           </div>
 
-          {/* Created Jobs */}
           {employerJobs.length > 0 && (
             <div className="mt-12">
-              <h2 className="font-display text-xl font-bold mb-4">Ваши вакансии</h2>
+              <h2 className="font-display text-xl font-bold mb-4">{t('employerCreate.yourJobs')}</h2>
               <div className="space-y-3">
                 {employerJobs.map((job) => (
                   <div key={job.id} className="rounded-xl border border-border bg-white p-5">
@@ -272,7 +269,7 @@ export default function EmployerCreateJob() {
                       </div>
                       <div className="flex items-center gap-1 text-green-600 text-xs font-medium">
                         <Check className="w-3.5 h-3.5" />
-                        Активна
+                        {t('employerCreate.active')}
                       </div>
                     </div>
                   </div>

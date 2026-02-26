@@ -134,6 +134,105 @@
   }
 }
 
+.career-map-grid {
+  isolation: isolate;
+}
+
+.path-drift {
+  animation: pathDrift var(--drift-duration, 3.2s) ease-in-out infinite;
+  animation-delay: var(--drift-delay, 0s);
+  will-change: transform;
+}
+
+.path-node {
+  transition:
+    transform 240ms ease,
+    background-color 280ms ease,
+    box-shadow 280ms ease,
+    opacity 240ms ease;
+}
+
+.path-node:hover,
+.path-node:focus-visible {
+  transform: scale(1.02);
+  background: rgba(255, 255, 255, 0.52);
+  box-shadow: 0 8px 20px rgba(67, 84, 112, 0.14);
+}
+
+.typing-caret {
+  display: inline-block;
+  margin-left: 4px;
+  color: rgba(74, 85, 104, 0.9);
+  animation: blinkCaret 1s step-end infinite;
+}
+
+.line-fade-2 {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 76%, rgba(0, 0, 0, 0.28) 100%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 76%, rgba(0, 0, 0, 0.28) 100%);
+}
+
+.center-core {
+  animation: corePulse 4.8s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes pathDrift {
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(var(--drift-x, 1.4px), var(--drift-y, -1.4px));
+  }
+  50% {
+    transform: translate(calc(var(--drift-x, 1.4px) * -0.6), calc(var(--drift-y, -1.4px) * 0.55));
+  }
+  75% {
+    transform: translate(calc(var(--drift-x, 1.4px) * 0.42), calc(var(--drift-y, -1.4px) * -0.72));
+  }
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes corePulse {
+  0% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.8),
+      0 0 55px 28px rgba(36, 213, 145, 0.54),
+      0 0 95px 56px rgba(51, 181, 243, 0.38),
+      0 0 125px 82px rgba(255, 255, 255, 0.08);
+  }
+  50% {
+    box-shadow:
+      0 0 0 4px rgba(255, 255, 255, 0.92),
+      0 0 90px 40px rgba(36, 213, 145, 0.72),
+      0 0 145px 74px rgba(51, 181, 243, 0.6),
+      0 0 200px 106px rgba(255, 255, 255, 0.2);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.8),
+      0 0 55px 28px rgba(36, 213, 145, 0.54),
+      0 0 95px 56px rgba(51, 181, 243, 0.38),
+      0 0 125px 82px rgba(255, 255, 255, 0.08);
+  }
+}
+
+@keyframes blinkCaret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

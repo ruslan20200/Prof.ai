@@ -1,14 +1,14 @@
-/* Career Canvas: Employer candidates search page */
 import { Button } from '@/components/ui/button';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Building2, Search, Users, Sparkles } from 'lucide-react';
 import { useLocation } from 'wouter';
 import { toast } from 'sonner';
+import { useI18n } from '@/contexts/I18nContext';
 
 export default function EmployerCandidates() {
   const [, navigate] = useLocation();
+  const { t } = useI18n();
 
-  // Mock candidates data for demo
   const candidates = [
     {
       id: '1',
@@ -59,32 +59,30 @@ export default function EmployerCandidates() {
             onClick={() => navigate('/employer/create-job')}
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Назад
+            {t('common.back')}
           </Button>
 
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/5 border border-primary/10 mb-4">
             <Users className="w-3.5 h-3.5 text-primary" />
-            <span className="text-xs font-medium text-primary">AI Поиск кандидатов</span>
+            <span className="text-xs font-medium text-primary">{t('employerCandidates.badge')}</span>
           </div>
 
           <h1 className="font-display text-3xl font-bold tracking-tight mb-2">
-            Кандидаты
+            {t('employerCandidates.title')}
           </h1>
           <p className="text-muted-foreground mb-8">
-            AI подобрал лучших кандидатов для ваших вакансий
+            {t('employerCandidates.subtitle')}
           </p>
 
-          {/* Search */}
           <div className="relative mb-8">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Поиск по навыкам, опыту..."
+              placeholder={t('employerCandidates.searchPlaceholder')}
               className="w-full pl-11 pr-4 h-12 rounded-xl border border-border bg-white text-sm focus:border-primary outline-none transition-all"
             />
           </div>
 
-          {/* Candidates List */}
           <div className="space-y-4">
             {candidates.map((candidate, i) => (
               <motion.div
@@ -122,10 +120,10 @@ export default function EmployerCandidates() {
                       size="sm"
                       variant="outline"
                       className="gap-1 bg-transparent"
-                      onClick={() => toast.info('Функция приглашения будет доступна в полной версии')}
+                      onClick={() => toast.info(t('employerCandidates.inviteInfo'))}
                     >
                       <Sparkles className="w-3.5 h-3.5" />
-                      Пригласить на собеседование
+                      {t('employerCandidates.invite')}
                     </Button>
                   </div>
 
@@ -133,7 +131,7 @@ export default function EmployerCandidates() {
                     <div className="font-display text-3xl font-extrabold text-primary">
                       {candidate.matchPercent}%
                     </div>
-                    <div className="text-xs text-muted-foreground">совпадение</div>
+                    <div className="text-xs text-muted-foreground">{t('employerCandidates.matched')}</div>
                   </div>
                 </div>
               </motion.div>

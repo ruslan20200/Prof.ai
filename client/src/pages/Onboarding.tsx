@@ -1,308 +1,849 @@
-/* Career Canvas: Full-screen one-question-at-a-time onboarding, oversized typography */
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { callGemini } from '@/lib/ai';
+import { markOnboardingComplete } from '@/lib/authApi';
+import { jobs } from '@/data/jobs';
 import { useStore } from '@/store/useStore';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowRight, ArrowLeft, Sparkles, Check } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { ArrowLeft, Sparkles, Wand2, Plus, X, RefreshCcw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'wouter';
+import { useI18n } from '@/contexts/I18nContext';
 
-const ONBOARDING_IMG = 'https://private-us-east-1.manuscdn.com/sessionFile/jEzBJwYrZx1oONmR73Dibg/sandbox/w9MJXfqlFpTQrySgI2073N-img-2_1772022778000_na1fn_b25ib2FyZGluZy1pbGx1c3RyYXRpb24.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvakV6Qkp3WXJaeDFvT05tUjczRGliZy9zYW5kYm94L3c5TUpYZnFsRnBUUXJ5U2dJMjA3M04taW1nLTJfMTc3MjAyMjc3ODAwMF9uYTFmbl9iMjVpYjJGeVpHbHVaeTFwYkd4MWMzUnlZWFJwYjI0LnBuZz94LW9zcy1wcm9jZXNzPWltYWdlL3Jlc2l6ZSx3XzE5MjAsaF8xOTIwL2Zvcm1hdCx3ZWJwL3F1YWxpdHkscV84MCIsIkNvbmRpdGlvbiI6eyJEYXRlTGVzc1RoYW4iOnsiQVdTOkVwb2NoVGltZSI6MTc5ODc2MTYwMH19fV19&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=RZCUB~G7h2q6rR3d9cqvdhmHd0u2RO8nOOhGcmm5mrVIXctm7OC~dA-85Vc2HZqZs1d95ffP~1khRtZpZ5BAL1bK0~ZvZQPf-iQULBtkG44WS7Pmm25R45Ls0oqhPTob3GZErEH1Awfe5YClMk5bB1g2w~dubwhlexH9LKzIheMWJvKd75V0DVETmh8i6HTElMgm3gi4ryUWsgdgcnMVtax7beKz090HFYqX~2qtLgvbtgEZFN0eSnkU~tRWjvkm40oGDO9LauWCpiqDzHaFcSzMVOu~mfOG7AgEhCFNVWzYXKxOkkbh1c1jrkfD5cFAjcF~JHarjPNyjS8zMQBfuA__';
+type Stage = 'role' | 'details' | 'identity' | 'paths';
 
-interface Question {
+interface PathItem {
   id: string;
-  question: string;
-  placeholder: string;
-  type: 'text' | 'textarea' | 'chips' | 'select';
-  options?: string[];
-  profileField: string;
-  multi?: boolean;
+  title: string;
+  score: number;
+  x: number;
+  y: number;
 }
 
-const questions: Question[] = [
-  {
-    id: 'name',
-    question: 'Как вас зовут?',
-    placeholder: 'Введите ваше имя',
-    type: 'text',
-    profileField: 'name',
+interface AnimatedPathItem extends PathItem {
+  driftX: number;
+  driftY: number;
+  duration: number;
+  delay: number;
+  rank: number;
+  variant: 'db' | 'ai';
+}
+
+const seedSkills = ['Коммуникация', 'Аналитика'];
+const experiencePresetsRu = ['Без опыта', '1-2 года', '3-5 лет', '5+ лет'];
+const experiencePresetsKk = ['Тәжірибесіз', '1-2 жыл', '3-5 жыл', '5+ жыл'];
+const workFormatPresetsRu = ['Удалённо', 'Гибрид', 'Офис', 'Проектная работа'];
+const workFormatPresetsKk = ['Қашықтан', 'Гибрид', 'Кеңсе', 'Жобалық жұмыс'];
+const skillPresetsRu = ['Коммуникация', 'Организация', 'Работа с данными', 'Командная работа', 'Клиентский сервис', 'Критическое мышление'];
+const skillPresetsKk = ['Коммуникация', 'Ұйымдастыру', 'Дерекпен жұмыс', 'Командалық жұмыс', 'Клиенттік сервис', 'Сыни ойлау'];
+
+const staggerContainer: any = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.04,
+    },
   },
-  {
-    id: 'city',
-    question: 'В каком городе вы живёте?',
-    placeholder: 'Например: Алматы',
-    type: 'text',
-    profileField: 'city',
+};
+
+const revealItem: any = {
+  hidden: { opacity: 0, y: 14, filter: 'blur(8px)' },
+  show: {
+    opacity: 1,
+    y: 0,
+    filter: 'blur(0px)',
+    transition: {
+      duration: 0.48,
+      ease: 'easeOut',
+    },
   },
-  {
-    id: 'education',
-    question: 'Какое у вас образование?',
-    placeholder: '',
-    type: 'select',
-    options: ['Среднее', 'Среднее специальное (колледж)', 'Неоконченное высшее', 'Бакалавр', 'Магистр', 'PhD'],
-    profileField: 'education',
-  },
-  {
-    id: 'experience',
-    question: 'Какой у вас опыт работы?',
-    placeholder: '',
-    type: 'select',
-    options: ['Без опыта', 'До 1 года', '1-3 года', '3-6 лет', 'Более 6 лет'],
-    profileField: 'experience',
-  },
-  {
-    id: 'currentRole',
-    question: 'Кем вы работаете сейчас?',
-    placeholder: 'Например: студент, менеджер, разработчик...',
-    type: 'text',
-    profileField: 'currentRole',
-  },
-  {
-    id: 'skills',
-    question: 'Какие у вас навыки?',
-    placeholder: '',
-    type: 'chips',
-    options: [
-      'Python', 'JavaScript', 'React', 'Excel', 'SQL', 'Продажи',
-      'Английский язык', 'Казахский язык', 'Коммуникация', 'Аналитика',
-      'Дизайн', 'Маркетинг', 'Бухгалтерия', '1С', 'Менеджмент',
-      'Логистика', 'HR', 'Финансы', 'AutoCAD', 'Photoshop',
-    ],
-    profileField: 'skills',
-    multi: true,
-  },
-  {
-    id: 'interests',
-    question: 'Что вам интересно?',
-    placeholder: '',
-    type: 'chips',
-    options: [
-      'IT и разработка', 'Дизайн', 'Маркетинг', 'Финансы',
-      'Продажи', 'HR', 'Образование', 'Медицина',
-      'Строительство', 'Логистика', 'Производство', 'Сервис',
-    ],
-    profileField: 'interests',
-    multi: true,
-  },
-  {
-    id: 'desiredRole',
-    question: 'Кем вы хотите работать?',
-    placeholder: 'Опишите вашу идеальную работу...',
-    type: 'textarea',
-    profileField: 'desiredRole',
-  },
-  {
-    id: 'languages',
-    question: 'Какими языками вы владеете?',
-    placeholder: '',
-    type: 'chips',
-    options: ['Казахский', 'Русский', 'Английский', 'Турецкий', 'Китайский', 'Немецкий', 'Французский', 'Корейский'],
-    profileField: 'languages',
-    multi: true,
-  },
-  {
-    id: 'about',
-    question: 'Расскажите немного о себе',
-    placeholder: 'Ваши сильные стороны, достижения, хобби...',
-    type: 'textarea',
-    profileField: 'about',
-  },
-];
+};
+
+function useTypewriterText(text: string, active: boolean, speed = 24, delay = 0) {
+  const [displayText, setDisplayText] = useState(active ? '' : text);
+
+  useEffect(() => {
+    if (!active) {
+      setDisplayText(text);
+      return;
+    }
+
+    setDisplayText('');
+    let index = 0;
+    const timeoutId = window.setTimeout(() => {
+      const intervalId = window.setInterval(() => {
+        index += 1;
+        setDisplayText(text.slice(0, index));
+        if (index >= text.length) {
+          window.clearInterval(intervalId);
+        }
+      }, speed);
+    }, delay);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [active, delay, speed, text]);
+
+  return displayText;
+}
+
+function layoutByRelevance(index: number, total: number, score: number, maxScore: number, minScore: number) {
+  const angle = (Math.PI * 2 * index) / Math.max(total, 1) + ((index % 2 === 0 ? 1 : -1) * Math.PI) / 42;
+  const spread = Math.max(1, maxScore - minScore);
+  const relevance = (score - minScore) / spread;
+  const minRadius = 28;
+  const maxRadius = 46;
+  const jitter = ((index % 5) - 2) * 1.4;
+  const radius = Math.max(minRadius, Math.min(maxRadius, maxRadius - (maxRadius - minRadius) * relevance + jitter));
+  const rawX = 50 + Math.cos(angle) * radius;
+  const safeBand = 17;
+  let adjustedX = rawX;
+  if (Math.abs(rawX - 50) < safeBand) {
+    adjustedX = rawX < 50 ? 50 - safeBand : 50 + safeBand;
+  }
+
+  const x = adjustedX < 50
+    ? Math.max(20, Math.min(46, adjustedX))
+    : Math.max(54, Math.min(80, adjustedX));
+  const y = Math.max(11, Math.min(89, 50 + Math.sin(angle) * radius));
+  return { x, y };
+}
+
+function withAnimation(item: PathItem, index: number): AnimatedPathItem {
+  const seed = (index + 1) * 37;
+  const driftX = ((seed % 7) + 1) * (index % 2 === 0 ? 1 : -1) * 0.9;
+  const driftY = (((seed + 3) % 9) + 1) * (index % 3 === 0 ? -1 : 1) * 0.8;
+  const duration = 2.2 + (index % 5) * 0.28;
+  const delay = (index % 6) * 0.18;
+
+  return {
+    ...item,
+    driftX,
+    driftY,
+    duration,
+    delay,
+    rank: index + 1,
+    variant: index % 3 === 0 ? 'ai' : 'db',
+  };
+}
 
 export default function Onboarding() {
   const [, navigate] = useLocation();
+  const { t, lang } = useI18n();
   const {
-    onboardingStep,
-    setOnboardingStep,
-    addOnboardingAnswer,
-    setOnboardingComplete,
+    userProfile,
     setUserProfile,
+    setOnboardingComplete,
+    addOnboardingAnswer,
+    setUserRole,
   } = useStore();
 
-  const [currentAnswer, setCurrentAnswer] = useState('');
-  const [selectedChips, setSelectedChips] = useState<string[]>([]);
+  const [stage, setStage] = useState<Stage>('role');
+  const [activeTab, setActiveTab] = useState<'identity' | 'paths'>('identity');
 
-  const current = questions[onboardingStep];
-  const isLast = onboardingStep === questions.length - 1;
-  const progress = ((onboardingStep + 1) / questions.length) * 100;
+  const [roleInput, setRoleInput] = useState(userProfile.currentRole || '');
+  const [experienceInput, setExperienceInput] = useState('');
+  const [educationInput, setEducationInput] = useState(userProfile.education || '');
+  const [skillInput, setSkillInput] = useState('');
+  const [interestInput, setInterestInput] = useState('');
 
-  const handleNext = useCallback(() => {
-    const answer = current.type === 'chips' ? selectedChips.join(', ') : currentAnswer;
+  const [experiences, setExperiences] = useState<string[]>(
+    userProfile.currentRole ? [userProfile.currentRole] : []
+  );
+  const [education, setEducation] = useState<string[]>(
+    userProfile.education ? [userProfile.education] : []
+  );
+  const [skills, setSkills] = useState<string[]>(userProfile.skills.length ? userProfile.skills : seedSkills);
+  const [interests, setInterests] = useState<string[]>(userProfile.interests);
 
-    if (!answer && current.type !== 'chips') return;
-    if (current.type === 'chips' && selectedChips.length === 0) return;
+  const [identityStatement, setIdentityStatement] = useState(
+    userProfile.about || t('onboarding.identityStatement')
+  );
+  const [loadingIdentity, setLoadingIdentity] = useState(false);
+  const [loadingPaths, setLoadingPaths] = useState(false);
 
-    addOnboardingAnswer({ question: current.question, answer });
+  const [paths, setPaths] = useState<AnimatedPathItem[]>([]);
+  const [hoveredPathId, setHoveredPathId] = useState<string | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+  const [selectedExperiencePreset, setSelectedExperiencePreset] = useState('');
+  const [selectedWorkFormatPreset, setSelectedWorkFormatPreset] = useState('');
+  const experiencePresets = lang === 'kk' ? experiencePresetsKk : experiencePresetsRu;
+  const workFormatPresets = lang === 'kk' ? workFormatPresetsKk : workFormatPresetsRu;
+  const skillPresets = lang === 'kk' ? skillPresetsKk : skillPresetsRu;
 
-    if (current.type === 'chips') {
-      setUserProfile({ [current.profileField]: selectedChips });
-    } else {
-      setUserProfile({ [current.profileField]: answer });
+  const roleCatalog = useMemo(() => {
+    const unique = new Map<string, string>();
+    jobs.forEach((job) => {
+      if (!unique.has(job.title)) {
+        unique.set(job.title, job.category);
+      }
+    });
+    return Array.from(unique.entries()).map(([title, category]) => ({ title, category }));
+  }, []);
+
+  const quickRoleOptions = useMemo(() => roleCatalog.slice(0, 10).map((item) => item.title), [roleCatalog]);
+  const roleTitleText = useTypewriterText(t('onboarding.titleStart'), stage === 'role', 22, 40);
+  const roleSubtitleText = useTypewriterText(t('onboarding.subtitleStart'), stage === 'role', 10, 320);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) {
+        window.clearTimeout(hoverTimerRef.current);
+      }
+    };
+  }, []);
+
+  const hoveredPath = useMemo(() => {
+    if (!hoveredPathId) return null;
+    return paths.find((item) => item.id === hoveredPathId) ?? null;
+  }, [hoveredPathId, paths]);
+
+  const getMatchHint = (item: AnimatedPathItem) => {
+    if (item.score >= 86) return t('onboarding.veryHighMatch');
+    if (item.score >= 74) return t('onboarding.goodMatch');
+    return t('onboarding.growthOption');
+  };
+
+  const openHoveredPath = (pathId: string) => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current);
     }
+    hoverTimerRef.current = window.setTimeout(() => {
+      setHoveredPathId(pathId);
+    }, 130);
+  };
 
-    if (isLast) {
-      setOnboardingComplete(true);
-      navigate('/dashboard');
-    } else {
-      setOnboardingStep(onboardingStep + 1);
-      setCurrentAnswer('');
-      setSelectedChips([]);
+  const closeHoveredPath = () => {
+    if (hoverTimerRef.current) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
     }
-  }, [current, currentAnswer, selectedChips, isLast, onboardingStep, addOnboardingAnswer, setUserProfile, setOnboardingComplete, setOnboardingStep, navigate]);
+    setHoveredPathId(null);
+  };
 
-  const handleBack = () => {
-    if (onboardingStep > 0) {
-      setOnboardingStep(onboardingStep - 1);
-      setCurrentAnswer('');
-      setSelectedChips([]);
+  const addChip = (value: string, target: 'experience' | 'education' | 'skills' | 'interests') => {
+    const normalized = value.trim();
+    if (!normalized) return;
+
+    if (target === 'experience' && !experiences.includes(normalized)) {
+      setExperiences((prev) => [...prev, normalized]);
+      setExperienceInput('');
+    }
+    if (target === 'education' && !education.includes(normalized)) {
+      setEducation((prev) => [...prev, normalized]);
+      setEducationInput('');
+    }
+    if (target === 'skills' && !skills.includes(normalized)) {
+      setSkills((prev) => [...prev, normalized]);
+      setSkillInput('');
+    }
+    if (target === 'interests' && !interests.includes(normalized)) {
+      setInterests((prev) => [...prev, normalized]);
+      setInterestInput('');
     }
   };
 
-  const toggleChip = (chip: string) => {
-    setSelectedChips((prev) =>
-      prev.includes(chip) ? prev.filter((c) => c !== chip) : [...prev, chip]
+  const removeChip = (value: string, target: 'experience' | 'education' | 'skills' | 'interests') => {
+    if (target === 'experience') setExperiences((prev) => prev.filter((item) => item !== value));
+    if (target === 'education') setEducation((prev) => prev.filter((item) => item !== value));
+    if (target === 'skills') setSkills((prev) => prev.filter((item) => item !== value));
+    if (target === 'interests') setInterests((prev) => prev.filter((item) => item !== value));
+  };
+
+  const toggleQuickChip = (value: string, target: 'experience' | 'skills' | 'interests') => {
+    if (target === 'experience') {
+      setExperiences((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
+    }
+    if (target === 'skills') {
+      setSkills((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
+    }
+    if (target === 'interests') {
+      setInterests((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
+    }
+  };
+
+  const goFromDetailsToIdentity = () => {
+    const normalizedRole = roleInput.trim();
+    if (!normalizedRole) return;
+
+    setUserRole('seeker');
+    setExperiences((prev) => {
+      const next = prev.filter((item) => item !== normalizedRole);
+      return [normalizedRole, ...next];
+    });
+
+    if (selectedExperiencePreset) {
+      setExperiences((prev) => (prev.includes(selectedExperiencePreset) ? prev : [...prev, selectedExperiencePreset]));
+    }
+
+    if (selectedWorkFormatPreset) {
+      setInterests((prev) => (prev.includes(selectedWorkFormatPreset) ? prev : [...prev, selectedWorkFormatPreset]));
+    }
+
+    setStage('identity');
+    setActiveTab('identity');
+  };
+
+  const saveIdentityToStore = () => {
+    const currentRole = roleInput.trim() || experiences[0] || '';
+    setUserRole('seeker');
+    setUserProfile({
+      currentRole,
+      desiredRole: currentRole,
+      experience: experiences.join(', '),
+      education: education.join(', '),
+      skills,
+      interests,
+      about: identityStatement,
+    });
+  };
+
+  const generateIdentity = async () => {
+    setLoadingIdentity(true);
+    try {
+      const prompt = `${lang === 'kk' ? 'Қазақ тілінде қысқа мансаптық identity statement жаса (2-3 сөйлем).' : 'Сформируй короткий карьерный identity statement на русском языке (2-3 предложения).'}
+    ${t('onboarding.roleExp')}: ${experiences.join(', ') || roleInput}
+    ${t('dashboard.education')}: ${education.join(', ') || t('onboarding.noData')}
+    ${t('onboarding.skills')}: ${skills.join(', ') || t('onboarding.notSpecifiedPlural')}
+    ${t('onboarding.interests')}: ${interests.join(', ') || t('onboarding.notSpecifiedPlural')}
+    ${lang === 'kk' ? 'Стиль: сенімді, нақты, кәсіби.' : 'Тон: уверенный, конкретный, профессиональный.'}`;
+
+      const text = await callGemini(prompt);
+      setIdentityStatement(text);
+    } catch {
+      setIdentityStatement(lang === 'kk'
+        ? 'Мен маман ретінде дамып келемін, практикалық дағдыларымды күшейтіп, мансапта түсінікті өсімі бар тұрақты рөлге шығуды қалаймын.'
+        : 'Я развиваюсь как специалист, усиливаю практические навыки и хочу выйти на стабильную роль с понятным ростом в карьере.');
+    } finally {
+      setLoadingIdentity(false);
+    }
+  };
+
+  const explorePaths = async () => {
+    saveIdentityToStore();
+    setLoadingPaths(true);
+
+    try {
+      const prompt = `${lang === 'kk' ? 'Үміткерге 10 мансаптық рөл ұсын.' : 'Подбери 10 карьерных ролей для соискателя.'}
+    ${t('onboarding.roleExp')}: ${experiences.join(', ') || roleInput}
+    ${t('onboarding.skills')}: ${skills.join(', ')}
+    ${t('onboarding.interests')}: ${interests.join(', ')}
+    ${lang === 'kk' ? 'Қатаң форматтағы JSON-массив қайтар:' : 'Верни JSON-массив строго формата:'}
+    [{"title":"${lang === 'kk' ? 'Рөл атауы' : 'Название роли'}","score":84}]`;
+
+      const raw = await callGemini(prompt);
+      const cleaned = raw.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+      const parsed = JSON.parse(cleaned) as Array<{ title: string; score: number }>;
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const sorted = parsed
+          .map((item) => ({ title: item.title, score: Math.max(45, Math.min(98, Number(item.score) || 60)) }))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 24);
+        const maxScore = sorted[0]?.score ?? 90;
+        const minScore = sorted[sorted.length - 1]?.score ?? 55;
+
+        const mapped = sorted.map((item, index, array) => {
+          const point = layoutByRelevance(index, array.length, item.score, maxScore, minScore);
+          return withAnimation({
+            id: `${item.title}-${index}`,
+            title: item.title,
+            score: item.score,
+            ...point,
+          }, index);
+        });
+        setPaths(mapped);
+        setHoveredPathId(null);
+      } else {
+        throw new Error('empty');
+      }
+    } catch {
+      const fallback = roleCatalog
+        .slice(0, 24)
+        .map((role, index) => ({ ...role, score: Math.max(50, 85 - index * 2) }))
+        .sort((a, b) => b.score - a.score)
+        .map((role, index, array) => {
+        const maxScore = array[0]?.score ?? 85;
+        const minScore = array[array.length - 1]?.score ?? 50;
+        const point = layoutByRelevance(index, array.length, role.score, maxScore, minScore);
+        const score = role.score;
+        return withAnimation({
+          id: `${role.title}-${index}`,
+          title: role.title,
+          score,
+          ...point,
+        }, index);
+      });
+      setPaths(fallback);
+      setHoveredPathId(null);
+    } finally {
+      setLoadingPaths(false);
+      setStage('paths');
+      setActiveTab('paths');
+    }
+  };
+
+  const finishOnboarding = async () => {
+    saveIdentityToStore();
+
+    addOnboardingAnswer({ question: t('dashboard.experience'), answer: experiences.join(', ') });
+    addOnboardingAnswer({ question: t('dashboard.education'), answer: education.join(', ') });
+    addOnboardingAnswer({ question: t('onboarding.skills'), answer: skills.join(', ') });
+    addOnboardingAnswer({ question: t('onboarding.interests'), answer: interests.join(', ') });
+    addOnboardingAnswer({ question: t('onboarding.careerIdentityQuestion'), answer: identityStatement });
+
+    setOnboardingComplete(true);
+    try {
+      await markOnboardingComplete();
+    } catch {
+    }
+
+    navigate('/dashboard');
+  };
+
+  if (stage === 'role') {
+    return (
+      <div className="min-h-screen pt-16 bg-[#dfe4ec]">
+        <div className="container py-8">
+          <button
+            onClick={() => navigate('/')}
+            className="mb-8 flex items-center gap-2 text-sm text-[#4b5668]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {t('common.cancel')}
+          </button>
+
+          <motion.div
+            initial="hidden"
+            animate="show"
+            variants={staggerContainer}
+            className="mx-auto mt-16 max-w-4xl"
+          >
+            <motion.h1 variants={revealItem} className="mb-4 min-h-[76px] font-display text-6xl font-semibold text-[#4a5568]">
+              {roleTitleText}
+              <span className="typing-caret">|</span>
+            </motion.h1>
+            <motion.p variants={revealItem} className="mb-8 min-h-[36px] text-[40px] text-lg text-[#5f6d80]">{roleSubtitleText}</motion.p>
+
+            <motion.div variants={revealItem}>
+              <Input
+                value={roleInput}
+                onChange={(event) => setRoleInput(event.target.value)}
+                placeholder={t('onboarding.rolePlaceholder')}
+                className="h-20 rounded-2xl border-2 border-[#82a8df] bg-white/70 px-8 text-2xl font-light text-[#4a5568] placeholder:text-[#a6b1c2]"
+              />
+            </motion.div>
+
+            <motion.div variants={revealItem} className="mt-5">
+              <p className="mb-3 text-sm font-semibold text-[#6b7890]">{t('onboarding.readyRoles')}</p>
+              <div className="flex flex-wrap gap-2">
+                {quickRoleOptions.map((role) => (
+                  <button
+                    key={role}
+                    onClick={() => setRoleInput(role)}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition ${roleInput === role ? 'bg-[#73a0dc] text-white' : 'bg-white/85 text-[#4f5e72] hover:bg-white'}`}
+                  >
+                    {role}
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+
+            <motion.div variants={revealItem}>
+              <Button
+                className="mt-8 h-12 min-w-[180px] rounded-xl"
+                disabled={!roleInput.trim()}
+                onClick={() => {
+                  setUserRole('seeker');
+                  setExperiences((prev) => (prev.length ? prev : [roleInput.trim()]));
+                  setStage('details');
+                }}
+              >
+                {t('common.next')}
+              </Button>
+            </motion.div>
+          </motion.div>
+        </div>
+      </div>
     );
-  };
+  }
 
-  const canProceed =
-    current.type === 'chips' ? selectedChips.length > 0 : currentAnswer.trim().length > 0;
+  if (stage === 'details') {
+    return (
+      <div className="min-h-screen pt-16 bg-[#dfe4ec]">
+        <div className="container py-8">
+          <button
+            onClick={() => setStage('role')}
+            className="mb-8 flex items-center gap-2 text-sm text-[#4b5668]"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Назад
+          </button>
+
+          <motion.div
+            initial="hidden"
+            animate="show"
+            variants={staggerContainer}
+            className="mx-auto max-w-4xl rounded-3xl bg-white/70 p-7"
+          >
+            <motion.h2 variants={revealItem} className="text-3xl font-semibold text-[#45536a]">{t('onboarding.detailsTitle')}</motion.h2>
+            <motion.p variants={revealItem} className="mt-2 text-[#647287]">{t('onboarding.detailsSubtitle')}</motion.p>
+
+            <motion.div variants={revealItem} className="mt-7 space-y-6">
+              <motion.div variants={revealItem}>
+                <p className="mb-3 text-sm font-semibold text-[#5b6980]">{t('dashboard.experience')}</p>
+                <div className="flex flex-wrap gap-2">
+                  {experiencePresets.map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => setSelectedExperiencePreset(item)}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedExperiencePreset === item ? 'bg-[#78a7e6] text-white' : 'bg-[#edf2f9] text-[#55647a] hover:bg-[#e4ebf6]'}`}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+
+              <motion.div variants={revealItem}>
+                <p className="mb-3 text-sm font-semibold text-[#5b6980]">{t('onboarding.workFormat')}</p>
+                <div className="flex flex-wrap gap-2">
+                  {workFormatPresets.map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => setSelectedWorkFormatPreset(item)}
+                      className={`rounded-full px-4 py-2 text-sm font-semibold transition ${selectedWorkFormatPreset === item ? 'bg-[#78a7e6] text-white' : 'bg-[#edf2f9] text-[#55647a] hover:bg-[#e4ebf6]'}`}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+
+              <motion.div variants={revealItem}>
+                <p className="mb-3 text-sm font-semibold text-[#5b6980]">{t('onboarding.quickSkills')}</p>
+                <div className="flex flex-wrap gap-2">
+                  {skillPresets.map((item) => {
+                    const active = skills.includes(item);
+                    return (
+                      <button
+                        key={item}
+                        onClick={() => toggleQuickChip(item, 'skills')}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${active ? 'bg-[#9fdc72] text-[#304a2f]' : 'bg-[#eef5e8] text-[#4f6b4f] hover:bg-[#e3efd8]'}`}
+                      >
+                        {item}
+                      </button>
+                    );
+                  })}
+                </div>
+              </motion.div>
+            </motion.div>
+
+            <motion.div variants={revealItem} className="mt-8 flex flex-wrap justify-end gap-3">
+              <Button variant="outline" className="rounded-xl" onClick={() => setStage('role')}>
+                {t('common.back')}
+              </Button>
+              <Button className="rounded-xl" onClick={goFromDetailsToIdentity} disabled={!roleInput.trim()}>
+                {t('common.next')}
+              </Button>
+            </motion.div>
+          </motion.div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen pt-16 flex flex-col">
-      {/* Progress bar */}
-      <div className="fixed top-16 left-0 right-0 z-40 h-1 bg-muted">
-        <motion.div
-          className="h-full bg-primary"
-          initial={{ width: 0 }}
-          animate={{ width: `${progress}%` }}
-          transition={{ duration: 0.3 }}
-        />
-      </div>
+    <div className="min-h-screen pt-16 bg-[#dfe4ec]">
+      <div className="container py-6">
+        <div className="mb-6 grid grid-cols-2 gap-3 rounded-2xl bg-white/55 p-2">
+          <button
+            onClick={() => setActiveTab('identity')}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${activeTab === 'identity' ? 'bg-white text-[#425067]' : 'text-[#8a95a8]'}`}
+          >
+            {t('onboarding.tabIdentity')}
+          </button>
+          <button
+            onClick={() => setActiveTab('paths')}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${activeTab === 'paths' ? 'bg-white text-[#425067]' : 'text-[#8a95a8]'}`}
+          >
+            {t('onboarding.tabPaths')}
+          </button>
+        </div>
 
-      <div className="flex-1 flex">
-        {/* Left side - Question */}
-        <div className="flex-1 flex flex-col justify-center px-6 lg:px-20 py-12">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={onboardingStep}
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              transition={{ duration: 0.3 }}
-              className="max-w-xl"
-            >
-              <div className="flex items-center gap-2 mb-4">
-                <Sparkles className="w-4 h-4 text-primary" />
-                <span className="text-sm font-medium text-primary">
-                  Шаг {onboardingStep + 1} из {questions.length}
-                </span>
-              </div>
-
-              <h1 className="font-display text-3xl lg:text-5xl font-bold tracking-tight mb-8 leading-tight">
-                {current.question}
-              </h1>
-
-              {/* Input based on type */}
-              {current.type === 'text' && (
-                <input
-                  type="text"
-                  value={currentAnswer}
-                  onChange={(e) => setCurrentAnswer(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && canProceed && handleNext()}
-                  placeholder={current.placeholder}
-                  className="w-full text-xl lg:text-2xl border-b-2 border-border focus:border-primary bg-transparent py-3 outline-none transition-colors font-display"
-                  autoFocus
-                />
-              )}
-
-              {current.type === 'textarea' && (
-                <textarea
-                  value={currentAnswer}
-                  onChange={(e) => setCurrentAnswer(e.target.value)}
-                  placeholder={current.placeholder}
-                  className="w-full text-lg border-2 border-border focus:border-primary bg-transparent rounded-xl p-4 outline-none transition-colors resize-none h-32"
-                  autoFocus
-                />
-              )}
-
-              {current.type === 'select' && (
-                <div className="space-y-3">
-                  {current.options?.map((option) => (
-                    <button
-                      key={option}
-                      onClick={() => setCurrentAnswer(option)}
-                      className={`w-full text-left px-5 py-4 rounded-xl border-2 transition-all text-base font-medium ${
-                        currentAnswer === option
-                          ? 'border-primary bg-primary/5 text-primary'
-                          : 'border-border hover:border-primary/30 text-foreground'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        {option}
-                        {currentAnswer === option && <Check className="w-5 h-5" />}
-                      </div>
+        {activeTab === 'identity' ? (
+          <motion.div
+            initial="hidden"
+            animate="show"
+            variants={staggerContainer}
+            className="grid gap-6 lg:grid-cols-[1.1fr_1fr]"
+          >
+            <motion.div variants={revealItem} className="space-y-6 rounded-3xl bg-white/55 p-6">
+              <div>
+                <h2 className="mb-3 font-display text-3xl text-[#39465a]">🌱 {t('dashboard.experience')}</h2>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {experiences.map((item) => (
+                    <button key={item} onClick={() => removeChip(item, 'experience')} className="rounded-full bg-[#9ec1f6] px-4 py-2 text-lg text-[#33455f]">
+                      {item} <X className="ml-1 inline h-4 w-4" />
                     </button>
                   ))}
                 </div>
-              )}
-
-              {current.type === 'chips' && (
-                <div className="flex flex-wrap gap-2.5">
-                  {current.options?.map((chip) => (
+                <div className="flex gap-2">
+                  <Input value={experienceInput} onChange={(e) => setExperienceInput(e.target.value)} placeholder={lang === 'kk' ? 'Тәжірибе қосу' : 'Добавить опыт'} className="bg-white" />
+                  <Button variant="outline" onClick={() => addChip(experienceInput, 'experience')}><Plus className="h-4 w-4" /></Button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {experiencePresets.map((item) => (
                     <button
-                      key={chip}
-                      onClick={() => toggleChip(chip)}
-                      className={`px-4 py-2.5 rounded-full border-2 text-sm font-medium transition-all ${
-                        selectedChips.includes(chip)
-                          ? 'border-primary bg-primary text-white'
-                          : 'border-border hover:border-primary/30 text-foreground'
-                      }`}
+                      key={item}
+                      onClick={() => toggleQuickChip(item, 'experience')}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${experiences.includes(item) ? 'bg-[#78a7e6] text-white' : 'bg-[#edf2f9] text-[#55647a] hover:bg-[#e4ebf6]'}`}
                     >
-                      {chip}
+                      {item}
                     </button>
                   ))}
                 </div>
-              )}
-
-              {/* Navigation */}
-              <div className="flex items-center gap-3 mt-10">
-                {onboardingStep > 0 && (
-                  <Button
-                    variant="outline"
-                    onClick={handleBack}
-                    className="h-12 px-6 rounded-xl gap-2 bg-transparent"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    Назад
-                  </Button>
-                )}
-                <Button
-                  onClick={handleNext}
-                  disabled={!canProceed}
-                  className="h-12 px-8 rounded-xl gap-2 font-semibold"
-                >
-                  {isLast ? 'Завершить' : 'Далее'}
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
               </div>
 
-              <p className="text-xs text-muted-foreground mt-4">
-                Нажмите Enter для продолжения
-              </p>
+              <div>
+                <h2 className="mb-3 font-display text-3xl text-[#39465a]">🎓 {t('dashboard.education')}</h2>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {education.map((item) => (
+                    <button key={item} onClick={() => removeChip(item, 'education')} className="rounded-full bg-[#d5dbe6] px-4 py-2 text-lg text-[#33455f]">
+                      {item} <X className="ml-1 inline h-4 w-4" />
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input value={educationInput} onChange={(e) => setEducationInput(e.target.value)} placeholder={lang === 'kk' ? 'Білім қосу' : 'Добавить образование'} className="bg-white" />
+                  <Button variant="outline" onClick={() => addChip(educationInput, 'education')}><Plus className="h-4 w-4" /></Button>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="mb-3 font-display text-3xl text-[#39465a]">💪 {t('onboarding.skills')}</h2>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {skills.map((item) => (
+                    <button key={item} onClick={() => removeChip(item, 'skills')} className="rounded-full bg-[#acef55] px-4 py-2 text-lg text-[#33455f]">
+                      {item} <X className="ml-1 inline h-4 w-4" />
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input value={skillInput} onChange={(e) => setSkillInput(e.target.value)} placeholder={lang === 'kk' ? 'Дағды қосу' : 'Добавить навык'} className="bg-white" />
+                  <Button variant="outline" onClick={() => addChip(skillInput, 'skills')}><Plus className="h-4 w-4" /></Button>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {skillPresets.map((item) => (
+                    <button
+                      key={item}
+                      onClick={() => toggleQuickChip(item, 'skills')}
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition ${skills.includes(item) ? 'bg-[#9fdc72] text-[#304a2f]' : 'bg-[#eef5e8] text-[#4f6b4f] hover:bg-[#e3efd8]'}`}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h2 className="mb-3 font-display text-3xl text-[#39465a]">💕 {t('onboarding.interests')}</h2>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {interests.map((item) => (
+                    <button key={item} onClick={() => removeChip(item, 'interests')} className="rounded-full bg-[#ffd4eb] px-4 py-2 text-lg text-[#33455f]">
+                      {item} <X className="ml-1 inline h-4 w-4" />
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Input value={interestInput} onChange={(e) => setInterestInput(e.target.value)} placeholder={lang === 'kk' ? 'Қызығушылық қосу' : 'Добавить интерес'} className="bg-white" />
+                  <Button variant="outline" onClick={() => addChip(interestInput, 'interests')}><Plus className="h-4 w-4" /></Button>
+                </div>
+              </div>
             </motion.div>
-          </AnimatePresence>
-        </div>
 
-        {/* Right side - Illustration (desktop only) */}
-        <div className="hidden lg:flex w-[40%] items-center justify-center p-12 bg-secondary/30">
-          <motion.img
-            src={ONBOARDING_IMG}
-            alt="Onboarding"
-            className="max-w-md w-full rounded-2xl"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-          />
-        </div>
+            <motion.div variants={revealItem}>
+              <Card className="rounded-3xl border-0 bg-white/75">
+              <CardContent className="flex h-full flex-col p-8">
+                <div className="mb-4 inline-flex items-center gap-2 text-[#4f6d90]">
+                  <Sparkles className="h-4 w-4" />
+                  <span className="text-sm font-semibold">{t('onboarding.identityStatement')}</span>
+                </div>
+
+                <Textarea
+                  value={identityStatement}
+                  onChange={(event) => setIdentityStatement(event.target.value)}
+                  className="min-h-[260px] resize-none border-0 bg-transparent p-0 text-3xl font-light leading-relaxed text-[#435065]"
+                />
+
+                <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex gap-2">
+                    <Button variant="outline" className="rounded-xl" onClick={generateIdentity} disabled={loadingIdentity}>
+                      <RefreshCcw className="mr-2 h-4 w-4" />
+                      {loadingIdentity ? t('onboarding.generating') : t('onboarding.regenerate')}
+                    </Button>
+                  </div>
+
+                  <Button className="rounded-xl" onClick={explorePaths} disabled={loadingPaths}>
+                    <Wand2 className="mr-2 h-4 w-4" />
+                    {loadingPaths ? t('onboarding.exploring') : t('onboarding.explorePaths')}
+                  </Button>
+                </div>
+              </CardContent>
+              </Card>
+            </motion.div>
+          </motion.div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 16, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            transition={{ duration: 0.45, ease: 'easeOut' }}
+            className="rounded-3xl bg-white/55 p-6"
+          >
+            <div
+              className="career-map-grid relative h-[66vh] overflow-hidden rounded-3xl bg-[#dfe4ec]"
+              onMouseLeave={closeHoveredPath}
+            >
+              <div className="absolute inset-0 opacity-70 [background-image:radial-gradient(circle,_rgba(124,133,149,0.18)_1.7px,_transparent_1.7px)] [background-size:42px_42px]" />
+
+              <div className="center-core absolute left-1/2 top-1/2 z-10 h-56 w-56 -translate-x-1/2 -translate-y-1/2 rounded-full" />
+
+              <div className="absolute left-1/2 top-1/2 z-20 flex h-52 w-52 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white text-center shadow-xl">
+                <div>
+                  <p className="text-2xl font-semibold text-[#6f7c90]">{t('onboarding.pathsForYou')}</p>
+                  <p className="mt-2 text-sm text-[#7c889a]">{t('onboarding.basedOnProfile')}</p>
+                </div>
+              </div>
+
+              {paths.map((item) => (
+                <div
+                  key={item.id}
+                  className="path-drift absolute"
+                  style={{ left: `${item.x}%`, top: `${item.y}%` }}
+                >
+                  <button
+                    onMouseEnter={() => openHoveredPath(item.id)}
+                    onFocus={() => openHoveredPath(item.id)}
+                    onBlur={closeHoveredPath}
+                    className={`path-node group flex items-center gap-2 rounded-2xl px-2 py-1 ${item.x < 50 ? '-translate-x-full -translate-y-1/2 flex-row-reverse text-right' : '-translate-y-1/2 text-left'}`}
+                    style={{
+                      ['--drift-x' as string]: `${item.driftX}px`,
+                      ['--drift-y' as string]: `${item.driftY}px`,
+                      ['--drift-duration' as string]: `${item.duration}s`,
+                      ['--drift-delay' as string]: `${item.delay}s`,
+                    }}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 rounded-full ${
+                        item.variant === 'ai' ? 'bg-[#58d24b]' : 'bg-[#37aaf4]'
+                      }`}
+                    />
+                    <div className="max-w-[180px] md:max-w-[210px]">
+                      <span className="line-fade-2 block text-[16px] font-semibold leading-snug text-[#4f5e72] transition-colors duration-300 group-hover:text-[#35465f] md:text-[20px]">
+                        {item.title}
+                      </span>
+                      <span className="mt-0.5 inline-flex rounded-full bg-white/72 px-2 py-0.5 text-xs font-semibold text-[#5f6d83] shadow-sm">
+                        {item.score}% match
+                      </span>
+                    </div>
+                  </button>
+                </div>
+              ))}
+
+              <AnimatePresence>
+                {hoveredPath && (
+                  <motion.div
+                    key={hoveredPath.id}
+                    initial={{
+                      opacity: 0,
+                      y: 8,
+                      x: hoveredPath.x < 50 ? -10 : 10,
+                      scale: 0.97,
+                      filter: 'blur(5px)',
+                    }}
+                    animate={{ opacity: 1, y: 0, x: 0, scale: 1, filter: 'blur(0px)' }}
+                    exit={{ opacity: 0, y: 6, x: hoveredPath.x < 50 ? -8 : 8, scale: 0.98, filter: 'blur(4px)' }}
+                    transition={{ type: 'spring', stiffness: 260, damping: 24, mass: 0.75 }}
+                    className="pointer-events-none absolute z-40 w-[300px] rounded-3xl bg-white/88 p-5 shadow-xl ring-1 ring-white/70 backdrop-blur"
+                    style={{
+                      left: hoveredPath.x < 50
+                        ? `clamp(12px, calc(${hoveredPath.x}% + 36px), calc(100% - 312px))`
+                        : `clamp(12px, calc(${hoveredPath.x}% - 312px), calc(100% - 312px))`,
+                      top: `clamp(12px, calc(${hoveredPath.y}% - 106px), calc(100% - 252px))`,
+                    }}
+                  >
+                    <motion.span
+                      initial={{ opacity: 0, scaleX: 0.35 }}
+                      animate={{ opacity: 0.85, scaleX: 1 }}
+                      exit={{ opacity: 0, scaleX: 0.55 }}
+                      transition={{ duration: 0.22, ease: 'easeOut' }}
+                      className={`absolute top-[46px] h-[2px] w-8 bg-gradient-to-r from-[#6ecbff]/85 to-transparent ${hoveredPath.x < 50 ? '-left-10 origin-right' : '-right-10 origin-left rotate-180'}`}
+                    />
+                    <span
+                      className={`absolute top-10 h-4 w-4 rotate-45 bg-white/88 ring-1 ring-white/70 ${hoveredPath.x < 50 ? '-left-2' : '-right-2'}`}
+                    />
+                    <div className="mb-3 inline-flex items-center rounded-full bg-[#e9f6ff] px-3 py-1 text-xs font-semibold text-[#3f668a]">
+                      {hoveredPath.variant === 'ai' ? t('onboarding.aiResult') : t('onboarding.dbResult')}
+                    </div>
+                    <h3 className="text-2xl font-semibold leading-tight text-[#3f4d63]">{hoveredPath.title}</h3>
+                    <p className="mt-2 text-sm text-[#5f6f84]">{getMatchHint(hoveredPath)}</p>
+
+                    <div className="mt-4 rounded-2xl bg-[#f3f6fb] p-3">
+                      <div className="mb-2 flex items-center justify-between text-sm font-semibold text-[#46586f]">
+                        <span>{t('onboarding.match')}</span>
+                        <span>{hoveredPath.score}%</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-[#d7e1ef]">
+                        <motion.div
+                          className="h-full rounded-full bg-gradient-to-r from-[#3ea8ff] to-[#44d67f]"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${hoveredPath.score}%` }}
+                          transition={{ duration: 0.55, ease: 'easeOut' }}
+                        />
+                      </div>
+                    </div>
+
+                    <p className="mt-4 text-xs text-[#7c889a]">{t('onboarding.rankInList')}: #{hoveredPath.rank}</p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              <div className="absolute bottom-6 left-6 z-30 flex gap-3">
+                <div className="rounded-full bg-white px-4 py-2 text-sm text-[#5c6b80] shadow-sm">
+                  <span className="mr-2 inline-block h-3 w-3 rounded-full bg-[#37aaf4]" />
+                  {t('onboarding.dbResult')}
+                </div>
+                <div className="rounded-full bg-white px-4 py-2 text-sm text-[#5c6b80] shadow-sm">
+                  <span className="mr-2 inline-block h-3 w-3 rounded-full bg-[#58d24b]" />
+                  {t('onboarding.aiResult')}
+                </div>
+              </div>
+
+              <div className="absolute bottom-6 right-6 z-30 flex items-center gap-3">
+                <button className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-[#2f6ce6] shadow-sm">
+                  {t('onboarding.whySee')}
+                </button>
+                <button className="flex h-12 w-12 items-center justify-center rounded-full bg-[#2f6ce6] text-white shadow-sm">
+                  <RefreshCcw className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 flex items-center justify-end gap-3">
+              <Button variant="outline" className="rounded-xl" onClick={() => setActiveTab('identity')}>
+                {t('onboarding.toProfile')}
+              </Button>
+              <Button className="rounded-xl" onClick={finishOnboarding}>
+                {t('onboarding.goToJobs')}
+              </Button>
+            </div>
+          </motion.div>
+        )}
       </div>
     </div>
   );

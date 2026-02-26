@@ -1,225 +1,244 @@
-/* Career Canvas: Swiss Design, oversized typography, electric blue accent, clean white */
 import { Button } from '@/components/ui/button';
-import { useStore } from '@/store/useStore';
 import { motion } from 'framer-motion';
-import { ArrowRight, Sparkles, Users, FileText, MessageSquare, Building2, Target } from 'lucide-react';
+import { ArrowRight, Sparkles, BrainCircuit, ScanSearch, Rocket } from 'lucide-react';
+import { useStore } from '@/store/useStore';
+import { useEffect, useRef } from 'react';
 import { useLocation } from 'wouter';
+import { useI18n } from '@/contexts/I18nContext';
 
-const HERO_IMG = 'https://private-us-east-1.manuscdn.com/sessionFile/jEzBJwYrZx1oONmR73Dibg/sandbox/w9MJXfqlFpTQrySgI2073N-img-1_1772022784000_na1fn_aGVyby1iYW5uZXI.png?x-oss-process=image/resize,w_1920,h_1920/format,webp/quality,q_80&Expires=1798761600&Policy=eyJTdGF0ZW1lbnQiOlt7IlJlc291cmNlIjoiaHR0cHM6Ly9wcml2YXRlLXVzLWVhc3QtMS5tYW51c2Nkbi5jb20vc2Vzc2lvbkZpbGUvakV6Qkp3WXJaeDFvT05tUjczRGliZy9zYW5kYm94L3c5TUpYZnFsRnBUUXJ5U2dJMjA3M04taW1nLTFfMTc3MjAyMjc4NDAwMF9uYTFmbl9hR1Z5YnkxaVlXNXVaWEkucG5nP3gtb3NzLXByb2Nlc3M9aW1hZ2UvcmVzaXplLHdfMTkyMCxoXzE5MjAvZm9ybWF0LHdlYnAvcXVhbGl0eSxxXzgwIiwiQ29uZGl0aW9uIjp7IkRhdGVMZXNzVGhhbiI6eyJBV1M6RXBvY2hUaW1lIjoxNzk4NzYxNjAwfX19XX0_&Key-Pair-Id=K2HSFNDJXOU9YS&Signature=tA6aAO29oZWaEBrXHAp5XV5~Ktvmnil6CgRxnP9h3yUxFHXATFLUZ4-mbdMam9H-eWG3ybmE7QuuD87O-kT2jWP0mSnKBdbDLLUWdo6t4jQeGoMHS9gvUS7nr2iAJPWEPItlrSdf-GqAKam-~diFlDfXwgG~y0qzsyR-~Wjqs3vOYHnJERzmQnh~ItMGcuVk9nY0oXzhgBJzTZ5a0kH8wpxwEINA3dL3QG2dTiP8-weosXTjVYXrW2dvkPP9PLy8Ov6B4o8HnG3mjZ31ro6fINeJ-73jMjxGVFhxme26H4gPPIU4~bzdfMbFcJ3WQrsv2vWdI8KQPG9SJTLWW2hrnA__';
+const featureIcons = [BrainCircuit, ScanSearch, Rocket];
 
-const features = [
-  {
-    icon: Sparkles,
-    title: 'AI-Онбординг',
-    desc: 'Интерактивный диалог с ИИ — расскажите о себе, а мы найдём идеальную работу',
-  },
-  {
-    icon: Target,
-    title: 'Умный Матчинг',
-    desc: 'Процент совпадения с каждой вакансией и рекомендации по развитию навыков',
-  },
-  {
-    icon: FileText,
-    title: 'Генератор Резюме',
-    desc: 'Одним нажатием превратите ваш профиль в профессиональное резюме',
-  },
-  {
-    icon: MessageSquare,
-    title: 'Mock Interview',
-    desc: 'Подготовьтесь к собеседованию с AI-интервьюером и получите детальный фидбек',
-  },
-];
+function MouseTrailCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    const points: Array<{ x: number; y: number; life: number; size: number }> = [];
+    let rafId = 0;
+    let lastX = -9999;
+    let lastY = -9999;
+
+    const resize = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = `${window.innerWidth}px`;
+      canvas.style.height = `${window.innerHeight}px`;
+      context.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType && event.pointerType !== 'mouse') return;
+
+      const dx = event.clientX - lastX;
+      const dy = event.clientY - lastY;
+      const distance = Math.hypot(dx, dy);
+      if (distance < 10) return;
+
+      lastX = event.clientX;
+      lastY = event.clientY;
+      points.unshift({
+        x: event.clientX,
+        y: event.clientY,
+        life: 1,
+        size: 7 + Math.random() * 2,
+      });
+
+      if (points.length > 18) {
+        points.pop();
+      }
+    };
+
+    const onPointerLeave = () => {
+      lastX = -9999;
+      lastY = -9999;
+    };
+
+    const render = () => {
+      context.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+      for (let index = points.length - 1; index >= 0; index -= 1) {
+        const point = points[index];
+        point.life -= 0.035;
+
+        if (point.life <= 0) {
+          points.splice(index, 1);
+          continue;
+        }
+
+        const alpha = Math.max(0, point.life * 0.45);
+        const radius = point.size * (0.75 + point.life * 0.4);
+        const gradient = context.createRadialGradient(point.x, point.y, 0, point.x, point.y, radius);
+        gradient.addColorStop(0, `rgba(56,170,245,${alpha})`);
+        gradient.addColorStop(0.65, `rgba(48,211,151,${alpha * 0.7})`);
+        gradient.addColorStop(1, 'rgba(48,211,151,0)');
+
+        context.fillStyle = gradient;
+        context.beginPath();
+        context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+        context.fill();
+      }
+
+      rafId = window.requestAnimationFrame(render);
+    };
+
+    resize();
+    window.addEventListener('resize', resize);
+    window.addEventListener('pointermove', onPointerMove, { passive: true });
+    window.addEventListener('pointerleave', onPointerLeave, { passive: true });
+    rafId = window.requestAnimationFrame(render);
+
+    return () => {
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerleave', onPointerLeave);
+      window.cancelAnimationFrame(rafId);
+    };
+  }, []);
+
+  return <canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-[1]" />;
+}
 
 export default function Home() {
   const [, navigate] = useLocation();
-  const { setUserRole, onboardingComplete } = useStore();
+  const { setUserRole } = useStore();
+  const { t } = useI18n();
 
   const handleSeeker = () => {
     setUserRole('seeker');
-    if (onboardingComplete) {
-      navigate('/dashboard');
-    } else {
-      navigate('/onboarding');
-    }
+    navigate('/onboarding');
   };
 
   const handleEmployer = () => {
-    setUserRole('employer');
-    navigate('/employer/create-job');
+    navigate('/auth?role=employer');
   };
 
   return (
-    <div className="min-h-screen pt-16">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden">
-        <div className="container py-20 lg:py-32">
-          <div className="grid lg:grid-cols-2 gap-12 items-center">
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6 }}
-            >
-              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/5 border border-primary/10 mb-6">
-                <Sparkles className="w-3.5 h-3.5 text-primary" />
-                <span className="text-xs font-medium text-primary">Powered by Google Gemini 2.0</span>
-              </div>
+    <div className="relative min-h-screen overflow-hidden bg-[#dfe4ec]">
+      <div className="pointer-events-none absolute inset-0 opacity-65 [background-image:radial-gradient(circle,_rgba(124,133,149,0.18)_1.6px,_transparent_1.6px)] [background-size:42px_42px]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(55,170,244,0.16),transparent_35%),radial-gradient(circle_at_80%_10%,rgba(38,212,142,0.14),transparent_30%)]" />
 
-              <h1 className="font-display text-5xl lg:text-7xl font-extrabold tracking-tight text-foreground leading-[1.05] mb-6">
-                Найди работу
-                <br />
-                <span className="text-primary">мечты</span> с AI
-              </h1>
+      <MouseTrailCanvas />
 
-              <p className="text-lg text-muted-foreground max-w-lg mb-8 leading-relaxed">
-                BilimMatch — AI-платформа, которая превращает поиск работы в увлекательный опыт. Пройдите интерактивный онбординг, получите подходящие вакансии и подготовьтесь к собеседованию.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button
-                  size="lg"
-                  onClick={handleSeeker}
-                  className="text-base px-8 h-12 rounded-xl font-semibold gap-2"
-                >
-                  <Users className="w-4 h-4" />
-                  Я ищу работу
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-                <Button
-                  size="lg"
-                  variant="outline"
-                  onClick={handleEmployer}
-                  className="text-base px-8 h-12 rounded-xl font-semibold gap-2 bg-transparent"
-                >
-                  <Building2 className="w-4 h-4" />
-                  Я работодатель
-                </Button>
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6, delay: 0.2 }}
-              className="hidden lg:block"
-            >
-              <img
-                src={HERO_IMG}
-                alt="BilimMatch AI Career Platform"
-                className="w-full rounded-2xl"
-              />
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="bg-secondary/50 py-20 lg:py-28">
-        <div className="container">
+      <div className="container relative z-10 pt-20">
+        <div className="flex min-h-[calc(100vh-5rem)] flex-col items-center justify-center pb-12 text-center">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.5 }}
-            className="text-center mb-16"
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45 }}
+            className="mb-5 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-white/70 px-4 py-1.5"
           >
-            <h2 className="font-display text-3xl lg:text-5xl font-bold tracking-tight mb-4">
-              Как это работает
-            </h2>
-            <p className="text-muted-foreground text-lg max-w-2xl mx-auto">
-              Четыре простых шага к вашей идеальной карьере
-            </p>
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-xs font-semibold text-primary">{t('home.badge')}</span>
           </motion.div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {features.map((feature, i) => (
-              <motion.div
-                key={feature.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: i * 0.1 }}
-                className="bg-white rounded-2xl p-6 border border-border hover:border-primary/20 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300"
-              >
-                <div className="w-12 h-12 rounded-xl bg-primary/5 flex items-center justify-center mb-4">
-                  <feature.icon className="w-6 h-6 text-primary" />
-                </div>
-                <div className="font-display text-5xl font-extrabold text-primary/10 mb-2">
-                  0{i + 1}
-                </div>
-                <h3 className="font-display text-lg font-bold mb-2">{feature.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{feature.desc}</p>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* Stats Section */}
-      <section className="py-20 lg:py-28">
-        <div className="container">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
-            {[
-              { value: '20+', label: 'Вакансий в базе' },
-              { value: 'AI', label: 'Gemini 2.0 Flash' },
-              { value: '85%', label: 'Точность матчинга' },
-              { value: '24/7', label: 'Mock Interview' },
-            ].map((stat, i) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ duration: 0.4, delay: i * 0.1 }}
-                className="text-center"
-              >
-                <div className="font-display text-4xl lg:text-6xl font-extrabold text-primary mb-2">
-                  {stat.value}
-                </div>
-                <div className="text-sm text-muted-foreground font-medium">{stat.label}</div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="bg-foreground text-background py-20 lg:py-28">
-        <div className="container text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
+          <motion.h1
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.55, delay: 0.05 }}
+            className="font-display text-6xl font-extrabold tracking-tight text-[#3f4a5c] sm:text-7xl lg:text-8xl"
           >
-            <h2 className="font-display text-3xl lg:text-5xl font-bold tracking-tight mb-4">
-              Готовы начать?
-            </h2>
-            <p className="text-lg opacity-70 max-w-xl mx-auto mb-8">
-              Пройдите AI-онбординг за 2 минуты и откройте для себя идеальные вакансии
-            </p>
+            <span>Prof</span>
+            <span className="bg-gradient-to-r from-[#26d48e] to-[#37aaf4] bg-clip-text text-transparent">.ai</span>
+          </motion.h1>
+
+          <motion.p
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.12 }}
+            className="mt-4 max-w-2xl text-lg text-[#556173]"
+          >
+              {t('home.subtitle')}
+          </motion.p>
+
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45, delay: 0.18 }}
+            className="mt-10 flex flex-col items-center gap-3 sm:flex-row"
+          >
+            <Button size="lg" className="h-14 min-w-[220px] rounded-xl text-base font-semibold" onClick={handleSeeker}>
+              {t('home.start')}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
             <Button
               size="lg"
-              onClick={handleSeeker}
-              className="text-base px-10 h-12 rounded-xl font-semibold gap-2 bg-white text-foreground hover:bg-white/90"
+              variant="outline"
+              className="h-14 min-w-[220px] rounded-xl border-white/70 bg-white/70 text-[#3f4a5c]"
+              onClick={handleEmployer}
             >
-              Начать бесплатно
-              <ArrowRight className="w-4 h-4" />
+              {t('home.employer')}
             </Button>
           </motion.div>
         </div>
-      </section>
 
-      {/* Footer */}
-      <footer className="border-t border-border py-8">
-        <div className="container flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-primary" />
-            <span className="font-display text-sm font-bold">BilimMatch</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            BilimHack Almaty 2026 — AI Career Platform
+        <motion.section
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.5, ease: 'easeOut' }}
+          className="pb-14"
+        >
+          <h2 className="text-center font-display text-3xl font-bold text-[#3f4a5c]">{t('home.featuresTitle')}</h2>
+          <p className="mx-auto mt-3 max-w-2xl text-center text-[#617086]">
+            {t('home.featuresSubtitle')}
           </p>
-        </div>
-      </footer>
+
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            {featureIcons.map((Icon, index) => {
+              const titleKey = (`home.feature${index + 1}Title`) as const;
+              const textKey = (`home.feature${index + 1}Text`) as const;
+              return (
+                <motion.div
+                  key={titleKey}
+                  initial={{ opacity: 0, y: 16 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, amount: 0.2 }}
+                  transition={{ duration: 0.38, delay: index * 0.06, ease: 'easeOut' }}
+                  className="rounded-2xl border border-white/60 bg-white/72 p-6 shadow-sm backdrop-blur-sm"
+                >
+                  <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
+                    <Icon className="h-5 w-5 text-primary" />
+                  </div>
+                  <h3 className="font-display text-xl font-semibold text-[#3f4a5c]">{t(titleKey)}</h3>
+                  <p className="mt-2 text-sm text-[#617086]">{t(textKey)}</p>
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.section>
+
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, amount: 0.2 }}
+          transition={{ duration: 0.45, ease: 'easeOut' }}
+          className="pb-16"
+        >
+          <div className="rounded-3xl border border-white/65 bg-white/70 p-8 backdrop-blur-sm">
+            <h2 className="font-display text-3xl font-bold text-[#3f4a5c]">{t('home.howTitle')}</h2>
+            <div className="mt-6 grid gap-4 md:grid-cols-3">
+              <div className="rounded-xl bg-[#edf4ff] p-4 text-[#4a5a71]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Шаг 1</p>
+                <p className="mt-2 font-semibold">{t('home.step1')}</p>
+              </div>
+              <div className="rounded-xl bg-[#eefaf5] p-4 text-[#4a5a71]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Шаг 2</p>
+                <p className="mt-2 font-semibold">{t('home.step2')}</p>
+              </div>
+              <div className="rounded-xl bg-[#f1f5fb] p-4 text-[#4a5a71]">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">Шаг 3</p>
+                <p className="mt-2 font-semibold">{t('home.step3')}</p>
+              </div>
+            </div>
+          </div>
+        </motion.section>
+      </div>
     </div>
   );
 }

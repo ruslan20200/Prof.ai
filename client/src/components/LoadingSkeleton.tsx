@@ -1,4 +1,3 @@
-/* Career Canvas: Minimal loading states */
 import { Loader2 } from 'lucide-react';
 
 export function SkeletonCard() {

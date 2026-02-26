@@ -39,12 +39,43 @@ export interface InterviewAnalytics {
   detailedAnalysis: string;
 }
 
-interface AppState {
-  // User role
-  userRole: 'seeker' | 'employer' | null;
-  setUserRole: (role: 'seeker' | 'employer' | null) => void;
+export interface AuthUser {
+  id: string;
+  email: string;
+  fullName: string;
+  age: number | null;
+  role: 'seeker' | 'employer' | 'super_admin';
+  onboardingComplete: boolean;
+  profileSnapshot?: Partial<UserProfile> | null;
+  onboardingAnswers?: OnboardingAnswer[] | null;
+}
 
-  // Onboarding
+export interface JobApplication {
+  id: string;
+  jobId: string;
+  jobTitle: string;
+  company: string;
+  candidateName: string;
+  phone: string;
+  telegram: string;
+  coverLetter: string;
+  createdAt: number;
+  status: 'submitted';
+}
+
+interface AppState {
+  hasHydrated: boolean;
+  setHasHydrated: (hydrated: boolean) => void;
+
+  authToken: string | null;
+  authUser: AuthUser | null;
+  isAuthenticated: boolean;
+  setAuthSession: (token: string, user: AuthUser) => void;
+  clearAuthSession: () => void;
+
+  userRole: 'seeker' | 'employer' | 'super_admin' | null;
+  setUserRole: (role: 'seeker' | 'employer' | 'super_admin' | null) => void;
+
   onboardingStep: number;
   onboardingAnswers: OnboardingAnswer[];
   onboardingComplete: boolean;
@@ -52,11 +83,9 @@ interface AppState {
   addOnboardingAnswer: (answer: OnboardingAnswer) => void;
   setOnboardingComplete: (complete: boolean) => void;
 
-  // User profile
   userProfile: UserProfile;
   setUserProfile: (profile: Partial<UserProfile>) => void;
 
-  // Interview
   interviewMessages: ChatMessage[];
   interviewJobId: string | null;
   interviewActive: boolean;
@@ -67,7 +96,6 @@ interface AppState {
   setInterviewAnalytics: (analytics: InterviewAnalytics | null) => void;
   clearInterview: () => void;
 
-  // Employer
   employerJobs: Array<{
     id: string;
     title: string;
@@ -80,11 +108,12 @@ interface AppState {
   }>;
   addEmployerJob: (job: AppState['employerJobs'][0]) => void;
 
-  // Resume
   generatedResume: string | null;
   setGeneratedResume: (resume: string | null) => void;
 
-  // Reset
+  applications: JobApplication[];
+  addApplication: (application: JobApplication) => void;
+
   resetAll: () => void;
 }
 
@@ -107,6 +136,35 @@ const initialProfile: UserProfile = {
 export const useStore = create<AppState>()(
   persist(
     (set) => ({
+      hasHydrated: false,
+      setHasHydrated: (hydrated) => set({ hasHydrated: hydrated }),
+
+      authToken: null,
+      authUser: null,
+      isAuthenticated: false,
+      setAuthSession: (token, user) =>
+        set((state) => ({
+          authToken: token,
+          authUser: user,
+          isAuthenticated: true,
+          userRole: user.role,
+          onboardingComplete: user.onboardingComplete,
+          onboardingAnswers: user.onboardingAnswers ?? state.onboardingAnswers,
+          userProfile: {
+            ...state.userProfile,
+            ...(user.profileSnapshot ?? {}),
+            name: user.fullName || state.userProfile.name,
+            email: user.email || state.userProfile.email,
+          },
+        })),
+      clearAuthSession: () =>
+        set({
+          authToken: null,
+          authUser: null,
+          isAuthenticated: false,
+          userRole: null,
+        }),
+
       userRole: null,
       setUserRole: (role) => set({ userRole: role }),
 
@@ -154,9 +212,19 @@ export const useStore = create<AppState>()(
       generatedResume: null,
       setGeneratedResume: (resume) => set({ generatedResume: resume }),
 
+      applications: [],
+      addApplication: (application) =>
+        set((state) => ({
+          applications: [application, ...state.applications],
+        })),
+
       resetAll: () =>
         set({
+          hasHydrated: true,
           userRole: null,
+          authToken: null,
+          authUser: null,
+          isAuthenticated: false,
           onboardingStep: 0,
           onboardingAnswers: [],
           onboardingComplete: false,
@@ -167,10 +235,14 @@ export const useStore = create<AppState>()(
           interviewAnalytics: null,
           employerJobs: [],
           generatedResume: null,
+          applications: [],
         }),
     }),
     {
-      name: 'bilimmatch-storage',
+      name: 'prof-ai-storage',
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
     }
   )
 );

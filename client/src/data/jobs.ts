@@ -1,8 +1,3 @@
-/*
- * Career Canvas Design: Swiss Design, clean typography, electric blue accent
- * Data: Real job listings from Almaty labor market (hh.kz, enbek.kz)
- */
-
 export interface Job {
   id: string;
   title: string;

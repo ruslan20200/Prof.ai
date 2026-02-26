@@ -1,9 +1,8 @@
-/* Career Canvas: Dashboard with oversized match scores, clean cards */
 import { Button } from '@/components/ui/button';
 import { AIThinking } from '@/components/LoadingSkeleton';
 import { useStore } from '@/store/useStore';
 import { jobs } from '@/data/jobs';
-import { matchJobsWithProfile } from '@/lib/gemini';
+import { matchJobsWithProfile } from '../lib/ai';
 import { motion } from 'framer-motion';
 import {
   Sparkles, FileText, MessageSquare, MapPin, Briefcase, TrendingUp,
@@ -11,6 +10,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useLocation, Link } from 'wouter';
+import { useI18n } from '@/contexts/I18nContext';
 
 interface MatchResult {
   jobId: string;
@@ -18,11 +18,47 @@ interface MatchResult {
   explanation: string;
 }
 
+const sectionStagger: any = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.04,
+    },
+  },
+};
+
+const sectionReveal: any = {
+  hidden: { opacity: 0, y: 18, filter: 'blur(8px)' },
+  show: {
+    opacity: 1,
+    y: 0,
+    filter: 'blur(0px)',
+    transition: { duration: 0.42, ease: 'easeOut' },
+  },
+};
+
 export default function Dashboard() {
   const [, navigate] = useLocation();
-  const { userProfile, onboardingComplete, onboardingAnswers } = useStore();
+  const { userProfile, onboardingComplete } = useStore();
+  const { t } = useI18n();
   const [matches, setMatches] = useState<MatchResult[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [hasTriedMatching, setHasTriedMatching] = useState(false);
+
+  const cacheKey = useMemo(() => {
+    const profileSnapshot = {
+      city: userProfile.city,
+      experience: userProfile.experience,
+      education: userProfile.education,
+      desiredRole: userProfile.desiredRole,
+      skills: userProfile.skills,
+      interests: userProfile.interests,
+      languages: userProfile.languages,
+    };
+    return `ai-match-dashboard:${JSON.stringify(profileSnapshot)}`;
+  }, [userProfile]);
 
   useEffect(() => {
     if (!onboardingComplete) {
@@ -31,16 +67,35 @@ export default function Dashboard() {
     }
   }, [onboardingComplete, navigate]);
 
-  const runMatching = useCallback(async () => {
+  const runMatching = useCallback(async (force = false) => {
+    if (!onboardingComplete || loading) return;
+
+    if (!force && typeof window !== 'undefined') {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached) as MatchResult[];
+          setMatches(parsed);
+          setHasTriedMatching(true);
+          return;
+        } catch {
+          sessionStorage.removeItem(cacheKey);
+        }
+      }
+    }
+
     setLoading(true);
     try {
       const results = await matchJobsWithProfile(
         userProfile as unknown as Record<string, unknown>,
         jobs as unknown as Array<Record<string, unknown>>
       );
-      setMatches(results.sort((a, b) => b.matchPercent - a.matchPercent));
+      const sorted = results.sort((a, b) => b.matchPercent - a.matchPercent);
+      setMatches(sorted);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(cacheKey, JSON.stringify(sorted));
+      }
     } catch {
-      // Fallback matching
       const fallback = jobs.map((j) => {
         const skillMatch = j.skills.filter((s) =>
           userProfile.skills.some((us) => us.toLowerCase().includes(s.toLowerCase()) || s.toLowerCase().includes(us.toLowerCase()))
@@ -48,16 +103,29 @@ export default function Dashboard() {
         const percent = Math.min(95, Math.floor((skillMatch / Math.max(j.skills.length, 1)) * 80 + Math.random() * 20));
         return { jobId: j.id, matchPercent: percent, explanation: 'Совпадение на основе ваших навыков.' };
       });
-      setMatches(fallback.sort((a, b) => b.matchPercent - a.matchPercent));
+      const sorted = fallback.sort((a, b) => b.matchPercent - a.matchPercent);
+      setMatches(sorted);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(cacheKey, JSON.stringify(sorted));
+      }
     }
+    setHasTriedMatching(true);
     setLoading(false);
-  }, [userProfile]);
+  }, [cacheKey, loading, onboardingComplete, userProfile]);
 
   useEffect(() => {
-    if (onboardingComplete) {
-      runMatching();
+    if (!onboardingComplete || typeof window === 'undefined') return;
+    const cached = sessionStorage.getItem(cacheKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as MatchResult[];
+        setMatches(parsed);
+        setHasTriedMatching(true);
+      } catch {
+        sessionStorage.removeItem(cacheKey);
+      }
     }
-  }, [onboardingComplete, runMatching]);
+  }, [cacheKey, onboardingComplete]);
 
   const topMatches = useMemo(() => {
     return matches.slice(0, 6).map((m) => ({
@@ -82,104 +150,126 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen pt-16">
-      <div className="container py-10">
-        {/* Welcome */}
+      <motion.div
+        className="container py-10"
+        initial="hidden"
+        animate="show"
+        variants={sectionStagger}
+      >
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
+          variants={sectionReveal}
           className="mb-10"
         >
           <h1 className="font-display text-3xl lg:text-4xl font-bold tracking-tight mb-2">
-            Привет, {userProfile.name || 'Кандидат'} 👋
+            {t('dashboard.greeting')}, {userProfile.name || t('dashboard.candidate')} 👋
           </h1>
           <p className="text-muted-foreground text-lg">
-            Вот ваши лучшие совпадения с вакансиями
+            {t('dashboard.subtitle')}
           </p>
+          <div className="mt-4">
+            <Button
+              size="sm"
+              variant="outline"
+              className="rounded-lg bg-transparent"
+              onClick={() => runMatching(true)}
+              disabled={loading}
+            >
+              {loading ? t('jobs.matching') : hasTriedMatching ? t('dashboard.refreshMatch') : t('dashboard.runMatch')}
+            </Button>
+          </div>
         </motion.div>
 
-        {/* Quick Actions */}
-        <div className="grid sm:grid-cols-3 gap-4 mb-10">
+        <motion.div variants={sectionReveal} className="grid sm:grid-cols-3 gap-4 mb-10">
           <Link href="/jobs" className="no-underline">
-            <div className="p-5 rounded-xl border border-border hover:border-primary/20 hover:shadow-md transition-all bg-white group">
+            <motion.div
+              whileHover={{ y: -3, scale: 1.01 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+              className="p-5 rounded-xl border border-border hover:border-primary/20 hover:shadow-md transition-all duration-300 bg-white group"
+            >
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
                   <Briefcase className="w-5 h-5 text-primary" />
                 </div>
-                <span className="font-display font-bold text-foreground">Все вакансии</span>
+                <span className="font-display font-bold text-foreground">{t('dashboard.allVacancies')}</span>
               </div>
               <p className="text-sm text-muted-foreground">
                 {jobs.length} вакансий с AI-матчингом
               </p>
-            </div>
+            </motion.div>
           </Link>
 
           <Link href="/resume" className="no-underline">
-            <div className="p-5 rounded-xl border border-border hover:border-primary/20 hover:shadow-md transition-all bg-white group">
+            <motion.div
+              whileHover={{ y: -3, scale: 1.01 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+              className="p-5 rounded-xl border border-border hover:border-primary/20 hover:shadow-md transition-all duration-300 bg-white group"
+            >
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
                   <FileText className="w-5 h-5 text-primary" />
                 </div>
-                <span className="font-display font-bold text-foreground">Моё резюме</span>
+                <span className="font-display font-bold text-foreground">{t('dashboard.myResume')}</span>
               </div>
               <p className="text-sm text-muted-foreground">
-                Сгенерировать AI-резюме
+                {t('dashboard.generateResume')}
               </p>
-            </div>
+            </motion.div>
           </Link>
 
           <Link href="/interview" className="no-underline">
-            <div className="p-5 rounded-xl border border-border hover:border-primary/20 hover:shadow-md transition-all bg-white group">
+            <motion.div
+              whileHover={{ y: -3, scale: 1.01 }}
+              transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+              className="p-5 rounded-xl border border-border hover:border-primary/20 hover:shadow-md transition-all duration-300 bg-white group"
+            >
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-lg bg-primary/5 flex items-center justify-center">
                   <MessageSquare className="w-5 h-5 text-primary" />
                 </div>
-                <span className="font-display font-bold text-foreground">Mock Interview</span>
+                <span className="font-display font-bold text-foreground">{t('dashboard.mockInterview')}</span>
               </div>
               <p className="text-sm text-muted-foreground">
-                Подготовка к собеседованию
+                {t('dashboard.interviewPrep')}
               </p>
-            </div>
+            </motion.div>
           </Link>
-        </div>
+        </motion.div>
 
-        {/* Profile Summary */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
+          variants={sectionReveal}
           className="mb-10 p-6 rounded-2xl border border-border bg-white"
         >
           <h2 className="font-display text-lg font-bold mb-4 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
-            Ваш профиль
+            {t('dashboard.profile')}
           </h2>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
-              <div className="text-xs text-muted-foreground mb-1">Город</div>
+              <div className="text-xs text-muted-foreground mb-1">{t('dashboard.city')}</div>
               <div className="text-sm font-medium flex items-center gap-1">
                 <MapPin className="w-3.5 h-3.5 text-primary" />
-                {userProfile.city || 'Не указан'}
+                {userProfile.city || t('common.notSpecified')}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground mb-1">Опыт</div>
+              <div className="text-xs text-muted-foreground mb-1">{t('dashboard.experience')}</div>
               <div className="text-sm font-medium flex items-center gap-1">
                 <TrendingUp className="w-3.5 h-3.5 text-primary" />
-                {userProfile.experience || 'Не указан'}
+                {userProfile.experience || t('common.notSpecified')}
               </div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground mb-1">Образование</div>
-              <div className="text-sm font-medium">{userProfile.education || 'Не указано'}</div>
+              <div className="text-xs text-muted-foreground mb-1">{t('dashboard.education')}</div>
+              <div className="text-sm font-medium">{userProfile.education || t('common.notSpecified')}</div>
             </div>
             <div>
-              <div className="text-xs text-muted-foreground mb-1">Желаемая роль</div>
-              <div className="text-sm font-medium">{userProfile.desiredRole || 'Не указана'}</div>
+              <div className="text-xs text-muted-foreground mb-1">{t('dashboard.desiredRole')}</div>
+              <div className="text-sm font-medium">{userProfile.desiredRole || t('common.notSpecified')}</div>
             </div>
           </div>
           {userProfile.skills.length > 0 && (
             <div className="mt-4">
-              <div className="text-xs text-muted-foreground mb-2">Навыки</div>
+              <div className="text-xs text-muted-foreground mb-2">{t('dashboard.skills')}</div>
               <div className="flex flex-wrap gap-1.5">
                 {userProfile.skills.map((skill) => (
                   <span key={skill} className="px-2.5 py-1 rounded-full bg-primary/5 text-primary text-xs font-medium">
@@ -191,27 +281,32 @@ export default function Dashboard() {
           )}
         </motion.div>
 
-        {/* Top Matches */}
-        <div className="mb-6 flex items-center justify-between">
-          <h2 className="font-display text-2xl font-bold">Лучшие совпадения</h2>
+        <motion.div variants={sectionReveal} className="mb-6 flex items-center justify-between">
+          <h2 className="font-display text-2xl font-bold">{t('dashboard.topMatches')}</h2>
           <Link href="/jobs" className="text-sm text-primary font-medium flex items-center gap-1 no-underline">
-            Все вакансии <ChevronRight className="w-4 h-4" />
+            {t('dashboard.allJobsLink')} <ChevronRight className="w-4 h-4" />
           </Link>
-        </div>
+        </motion.div>
 
         {loading ? (
-          <AIThinking text="AI анализирует ваш профиль и подбирает вакансии..." />
+          <motion.div variants={sectionReveal}>
+            <AIThinking text="AI анализирует ваш профиль и подбирает вакансии..." />
+          </motion.div>
+        ) : !hasTriedMatching ? (
+          <motion.div variants={sectionReveal} className="rounded-2xl border border-border bg-white p-8 text-center">
+            <p className="text-muted-foreground mb-4">{t('dashboard.runPrompt')}</p>
+          </motion.div>
         ) : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <motion.div variants={sectionReveal} className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {topMatches.map((match, i) => (
               <motion.div
                 key={match.jobId}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="rounded-2xl border border-border bg-white p-6 hover:shadow-lg hover:border-primary/20 transition-all group"
+                transition={{ delay: i * 0.06, duration: 0.38, ease: 'easeOut' }}
+                whileHover={{ y: -4, scale: 1.01 }}
+                className="rounded-2xl border border-border bg-white p-6 hover:shadow-lg hover:border-primary/20 transition-all duration-300 group"
               >
-                {/* Match Score */}
                 <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-4 border ${getMatchBg(match.matchPercent)}`}>
                   <span className={getMatchColor(match.matchPercent)}>
                     {match.matchPercent}% совпадение
@@ -260,14 +355,14 @@ export default function Dashboard() {
                   className="w-full rounded-lg gap-1 bg-transparent"
                   onClick={() => navigate(`/interview?jobId=${match.jobId}`)}
                 >
-                  Mock Interview
+                  {t('dashboard.interviewButton')}
                   <ArrowRight className="w-3.5 h-3.5" />
                 </Button>
               </motion.div>
             ))}
-          </div>
+          </motion.div>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
